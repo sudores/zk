@@ -217,6 +217,14 @@ func (db *DB) migrate() error {
 				// https://github.com/zk-org/zk/issues/170#issuecomment-1107848441
 				NeedsReindexing: true,
 			},
+
+			{ // 8
+				SQL: []string{
+					`ALTER TABLE notes ADD COLUMN filename TEXT DEFAULT('') NOT NULL`,
+					`CREATE INDEX IF NOT EXISTS index_notes_filename ON notes (filename)`,
+				},
+				NeedsReindexing: true,
+			},
 		}
 
 		needsReindexing := false

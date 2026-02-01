@@ -30,7 +30,7 @@ func (cmd *Graph) Run(container *cli.Container) error {
 		return err
 	}
 
-	findOpts, err := cmd.Filtering.NewNoteFindOpts(notebook)
+	findOpts, err := cmd.NewNoteFindOpts(notebook)
 	if err != nil {
 		return errors.Wrapf(err, "incorrect criteria")
 	}
@@ -88,6 +88,7 @@ func (cmd *Graph) Run(container *cli.Container) error {
 
 	fmt.Print("\n  ]\n}\n")
 
+	// FIXME; bad error check
 	if err == nil && !cmd.Quiet {
 		count := len(notes)
 		fmt.Fprintf(os.Stderr, "\n\nFound %d %s\n", count, strings.Pluralize("note", count))

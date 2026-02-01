@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 
@@ -68,8 +69,9 @@ func NewDefaultConfig() Config {
 				},
 			},
 			Diagnostics: LSPDiagnosticConfig{
-				WikiTitle: LSPDiagnosticNone,
-				DeadLink:  LSPDiagnosticError,
+				WikiTitle:       LSPDiagnosticNone,
+				DeadLink:        LSPDiagnosticError,
+				MissingBacklink: MissingBacklinkConfig{}, // Disabled by default (Level = LSPDiagnosticNone)
 			},
 		},
 		Filters: map[string]string{},
@@ -186,7 +188,7 @@ type LSPCompletionConfig struct {
 	UseAdditionalTextEdits opt.Bool
 }
 
-// LSPCompletionConfig holds the LSP completion templates for a particular
+// LSPCompletionTemplates holds the LSP completion templates for a particular
 // completion item type (e.g. note or tag).
 type LSPCompletionTemplates struct {
 	Label      opt.String
@@ -196,8 +198,18 @@ type LSPCompletionTemplates struct {
 
 // LSPDiagnosticConfig holds the LSP diagnostics configuration.
 type LSPDiagnosticConfig struct {
-	WikiTitle LSPDiagnosticSeverity
-	DeadLink  LSPDiagnosticSeverity
+	WikiTitle       LSPDiagnosticSeverity
+	DeadLink        LSPDiagnosticSeverity
+	SelfLink        LSPDiagnosticSeverity
+	MissingBacklink MissingBacklinkConfig
+}
+
+// IsEnabled returns true if at least one diagnostic is enabled.
+func (c LSPDiagnosticConfig) IsEnabled() bool {
+	return c.WikiTitle != LSPDiagnosticNone ||
+		c.DeadLink != LSPDiagnosticNone ||
+		c.SelfLink != LSPDiagnosticNone ||
+		c.MissingBacklink.Level != LSPDiagnosticNone
 }
 
 type LSPDiagnosticSeverity int
@@ -209,6 +221,20 @@ const (
 	LSPDiagnosticInfo    LSPDiagnosticSeverity = 3
 	LSPDiagnosticHint    LSPDiagnosticSeverity = 4
 )
+
+type LSPDiagnosticPosition int
+
+const (
+	LSPDiagnosticPositionTop LSPDiagnosticPosition = iota + 1
+	LSPDiagnosticPositionBottom
+	LSPDiagnosticPositionLastSection
+)
+
+// MissingBacklinkConfig holds the configuration for missing backlink diagnostics.
+type MissingBacklinkConfig struct {
+	Level    LSPDiagnosticSeverity
+	Position LSPDiagnosticPosition
+}
 
 // NotebookConfig holds configuration about the default notebook
 type NotebookConfig struct {
@@ -264,9 +290,7 @@ func (c GroupConfig) Clone() GroupConfig {
 	copy(clone.Paths, c.Paths)
 
 	clone.Extra = make(map[string]string)
-	for k, v := range c.Extra {
-		clone.Extra[k] = v
-	}
+	maps.Copy(clone.Extra, c.Extra)
 	return clone
 }
 
@@ -343,16 +367,10 @@ func ParseConfig(content []byte, path string, parentConfig Config, isGlobal bool
 	if note.DefaultTitle != "" {
 		config.Note.DefaultTitle = note.DefaultTitle
 	}
-	for _, v := range note.Exclude {
-		config.Note.Exclude = append(config.Note.Exclude, v)
-	}
-	for _, v := range note.Ignore {
-		config.Note.Exclude = append(config.Note.Exclude, v)
-	}
+	config.Note.Exclude = append(config.Note.Exclude, note.Exclude...)
+	config.Note.Exclude = append(config.Note.Exclude, note.Ignore...)
 	if tomlConf.Extra != nil {
-		for k, v := range tomlConf.Extra {
-			config.Extra[k] = v
-		}
+		maps.Copy(config.Extra, tomlConf.Extra)
 	}
 
 	// Groups
@@ -442,19 +460,31 @@ func ParseConfig(content []byte, path string, parentConfig Config, isGlobal bool
 			return config, wrap(err)
 		}
 	}
+	if lspDiags.SelfLink != nil {
+		config.LSP.Diagnostics.SelfLink, err = lspDiagnosticSeverityFromString(*lspDiags.SelfLink)
+		if err != nil {
+			return config, wrap(err)
+		}
+	}
+	if lspDiags.MissingBacklink != nil {
+		config.LSP.Diagnostics.MissingBacklink.Level, err = lspDiagnosticSeverityFromString(lspDiags.MissingBacklink.Level)
+		if err != nil {
+			return config, wrap(err)
+		}
+		config.LSP.Diagnostics.MissingBacklink.Position, err = lspDiagnosticPositionFromString(lspDiags.MissingBacklink.Position)
+		if err != nil {
+			return config, wrap(err)
+		}
+	}
 
 	// Filters
 	if tomlConf.Filters != nil {
-		for k, v := range tomlConf.Filters {
-			config.Filters[k] = v
-		}
+		maps.Copy(config.Filters, tomlConf.Filters)
 	}
 
 	// Aliases
 	if tomlConf.Aliases != nil {
-		for k, v := range tomlConf.Aliases {
-			config.Aliases[k] = v
-		}
+		maps.Copy(config.Aliases, tomlConf.Aliases)
 	}
 
 	return config, nil
@@ -464,9 +494,7 @@ func (c GroupConfig) merge(tomlConf tomlGroupConfig, name string) GroupConfig {
 	res := c.Clone()
 
 	if tomlConf.Paths != nil {
-		for _, p := range tomlConf.Paths {
-			res.Paths = append(res.Paths, p)
-		}
+		res.Paths = append(res.Paths, tomlConf.Paths...)
 	} else {
 		// If no `paths` config property was given for this group, we assume
 		// that its name will be used as the path.
@@ -498,16 +526,10 @@ func (c GroupConfig) merge(tomlConf tomlGroupConfig, name string) GroupConfig {
 	if note.DefaultTitle != "" {
 		res.Note.DefaultTitle = note.DefaultTitle
 	}
-	for _, v := range note.Exclude {
-		res.Note.Exclude = append(res.Note.Exclude, v)
-	}
-	for _, v := range note.Ignore {
-		res.Note.Exclude = append(res.Note.Exclude, v)
-	}
+	res.Note.Exclude = append(res.Note.Exclude, note.Exclude...)
+	res.Note.Exclude = append(res.Note.Exclude, note.Ignore...)
 	if tomlConf.Extra != nil {
-		for k, v := range tomlConf.Extra {
-			res.Extra[k] = v
-		}
+		maps.Copy(res.Extra, tomlConf.Extra)
 	}
 
 	return res
@@ -580,9 +602,16 @@ type tomlLSPConfig struct {
 		UseAdditionalTextEdits *bool   `toml:"use-additional-text-edits"`
 	}
 	Diagnostics struct {
-		WikiTitle *string `toml:"wiki-title"`
-		DeadLink  *string `toml:"dead-link"`
+		WikiTitle       *string                    `toml:"wiki-title"`
+		DeadLink        *string                    `toml:"dead-link"`
+		SelfLink        *string                    `toml:"self-link"`
+		MissingBacklink *tomlMissingBacklinkConfig `toml:"missing-backlink"`
 	}
+}
+
+type tomlMissingBacklinkConfig struct {
+	Level    string `toml:"level"`
+	Position string `toml:"position"`
 }
 
 func charsetFromString(charset string) Charset {
@@ -627,5 +656,18 @@ func lspDiagnosticSeverityFromString(s string) (LSPDiagnosticSeverity, error) {
 		return LSPDiagnosticHint, nil
 	default:
 		return LSPDiagnosticNone, fmt.Errorf("%s: unknown LSP diagnostic severity - may be none, hint, info, warning or error", s)
+	}
+}
+
+func lspDiagnosticPositionFromString(s string) (LSPDiagnosticPosition, error) {
+	switch s {
+	case "top":
+		return LSPDiagnosticPositionTop, nil
+	case "bottom":
+		return LSPDiagnosticPositionBottom, nil
+	case "last-section":
+		return LSPDiagnosticPositionLastSection, nil
+	default:
+		return 0, fmt.Errorf("%s: unknown LSP diagnostic position - may be top, bottom, or last-section", s)
 	}
 }

@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,7 +64,7 @@ func (n *Notebook) Index(opts NoteIndexOpts) (stats NoteIndexingStats, err error
 	return n.IndexWithCallback(opts, func(change paths.DiffChange) {})
 }
 
-// Index indexes the content of the notebook to be searchable.
+// IndexWithCallback indexes the content of the notebook to be searchable.
 func (n *Notebook) IndexWithCallback(opts NoteIndexOpts, callback func(change paths.DiffChange)) (stats NoteIndexingStats, err error) {
 	err = n.index.Commit(func(index NoteIndex) error {
 		task := indexTask{
@@ -133,9 +134,7 @@ func (n *Notebook) NewNote(opts NewNoteOpts) (*Note, error) {
 	}
 
 	extra := config.Extra
-	for k, v := range opts.Extra {
-		extra[k] = v
-	}
+	maps.Copy(extra, opts.Extra)
 
 	templates, err := n.templateLoaderFactory(config.Note.Lang)
 	if err != nil {
@@ -211,7 +210,7 @@ func (n *Notebook) FindMinimalNotes(opts NoteFindOpts) ([]MinimalNote, error) {
 	return n.index.FindMinimal(opts)
 }
 
-// FindMinimalNotes retrieves lightweight metadata for the first note matching
+// FindMinimalNote retrieves lightweight metadata for the first note matching
 // the given filtering options.
 func (n *Notebook) FindMinimalNote(opts NoteFindOpts) (*MinimalNote, error) {
 	opts.Limit = 1

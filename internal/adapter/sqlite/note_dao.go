@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -22,13 +23,15 @@ type NoteDAO struct {
 	logger util.Logger
 
 	// Prepared SQL statements
-	indexedStmt            *LazyStmt
-	addStmt                *LazyStmt
-	updateStmt             *LazyStmt
-	removeStmt             *LazyStmt
-	findIdByPathStmt       *LazyStmt
-	findIdsByPathRegexStmt *LazyStmt
-	findByIdStmt           *LazyStmt
+	indexedStmt               *LazyStmt
+	addStmt                   *LazyStmt
+	updateStmt                *LazyStmt
+	removeStmt                *LazyStmt
+	findIDByPathStmt          *LazyStmt
+	findIdsByFilenameLikeStmt *LazyStmt
+	findIdsByPathLikeStmt     *LazyStmt
+	findIdsByPathPrefixStmt   *LazyStmt
+	findByIDStmt              *LazyStmt
 }
 
 // NewNoteDAO creates a new instance of a DAO working on the given database
@@ -46,8 +49,8 @@ func NewNoteDAO(tx Transaction, logger util.Logger) *NoteDAO {
 
 		// Add a new note to the index.
 		addStmt: tx.PrepareLazy(`
-			INSERT INTO notes (path, sortable_path, title, lead, body, raw_content, word_count, metadata, checksum, created, modified)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO notes (path, sortable_path, filename, title, lead, body, raw_content, word_count, metadata, checksum, created, modified)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`),
 
 		// Update the content of a note.
@@ -64,22 +67,35 @@ func NewNoteDAO(tx Transaction, logger util.Logger) *NoteDAO {
 		`),
 
 		// Find a note ID from its exact path.
-		findIdByPathStmt: tx.PrepareLazy(`
+		findIDByPathStmt: tx.PrepareLazy(`
 			SELECT id FROM notes
 			 WHERE path = ?
 		`),
 
-		// Find note IDs from a regex matching their path.
-		findIdsByPathRegexStmt: tx.PrepareLazy(`
+		// Find note IDs by filename LIKE pattern.
+		findIdsByFilenameLikeStmt: tx.PrepareLazy(`
 			SELECT id FROM notes
-			 WHERE path REGEXP ?
-				-- To find the best match possible, we sort by path length.
-				-- See https://github.com/zk-org/zk/issues/23
+			 WHERE filename LIKE ? ESCAPE '\'
+			 ORDER BY LENGTH(path) ASC
+		`),
+
+		// Find note IDs by path LIKE pattern.
+		findIdsByPathLikeStmt: tx.PrepareLazy(`
+			SELECT id FROM notes
+			 WHERE path LIKE ? ESCAPE '\'
+			 ORDER BY LENGTH(path) ASC
+		`),
+
+		// Find note IDs where href is a complete leading path component.
+		findIdsByPathPrefixStmt: tx.PrepareLazy(`
+			SELECT id FROM notes
+			 WHERE (path LIKE ? ESCAPE '\' AND path NOT LIKE ? ESCAPE '\')
+			    OR path LIKE ? ESCAPE '\'
 			 ORDER BY LENGTH(path) ASC
 		`),
 
 		// Find a note from its ID.
-		findByIdStmt: tx.PrepareLazy(`
+		findByIDStmt: tx.PrepareLazy(`
 			SELECT id, path, title, lead, body, raw_content, word_count, created, modified, metadata, checksum, tags, lead AS snippet
 			  FROM notes_with_metadata
 			 WHERE id = ?
@@ -133,10 +149,11 @@ func (d *NoteDAO) Add(note core.Note) (core.NoteID, error) {
 	// \x01 is used instead of \x00, because SQLite treats \x00 as and end of
 	// string.
 	sortablePath := strings.ReplaceAll(note.Path, "/", "\x01")
+	filename := filepath.Base(note.Path)
 
 	metadata := d.metadataToJSON(note)
 	res, err := d.addStmt.Exec(
-		note.Path, sortablePath, note.Title, note.Lead, note.Body,
+		note.Path, sortablePath, filename, note.Title, note.Lead, note.Body,
 		note.RawContent, note.WordCount, metadata, note.Checksum, note.Created,
 		note.Modified,
 	)
@@ -144,17 +161,17 @@ func (d *NoteDAO) Add(note core.Note) (core.NoteID, error) {
 		return 0, err
 	}
 
-	lastId, err := res.LastInsertId()
+	lastID, err := res.LastInsertId()
 	if err != nil {
 		return 0, err
 	}
 
-	return core.NoteID(lastId), err
+	return core.NoteID(lastID), err
 }
 
 // Update modifies an existing note.
 func (d *NoteDAO) Update(note core.Note) (core.NoteID, error) {
-	id, err := d.FindIdByPath(note.Path)
+	id, err := d.FindIDByPath(note.Path)
 	if err != nil {
 		return 0, err
 	}
@@ -183,7 +200,7 @@ func (d *NoteDAO) metadataToJSON(note core.Note) string {
 
 // Remove deletes the note with the given path from the index.
 func (d *NoteDAO) Remove(path string) error {
-	id, err := d.FindIdByPath(path)
+	id, err := d.FindIDByPath(path)
 	if err != nil {
 		return err
 	}
@@ -195,8 +212,8 @@ func (d *NoteDAO) Remove(path string) error {
 	return err
 }
 
-func (d *NoteDAO) FindIdByPath(path string) (core.NoteID, error) {
-	row, err := d.findIdByPathStmt.QueryRow(path)
+func (d *NoteDAO) FindIDByPath(path string) (core.NoteID, error) {
+	row, err := d.findIDByPathStmt.QueryRow(path)
 	if err != nil {
 		return core.NoteID(0), err
 	}
@@ -217,9 +234,25 @@ func idForRow(row *sql.Row) (core.NoteID, error) {
 	}
 }
 
-func (d *NoteDAO) findIdsByPathRegex(regex string) ([]core.NoteID, error) {
+func (d *NoteDAO) findIdsByFilenameLike(pattern string) ([]core.NoteID, error) {
+	return d.findIdsWithStmt(d.findIdsByFilenameLikeStmt, pattern)
+}
+
+func (d *NoteDAO) findIdsByPathLike(pattern string) ([]core.NoteID, error) {
+	return d.findIdsWithStmt(d.findIdsByPathLikeStmt, pattern)
+}
+
+func (d *NoteDAO) findIdsByPathPrefix(href string) ([]core.NoteID, error) {
+	// Three params:
+	// 1. href% for prefix,
+	// 2. href%/% to exclude slashes after href,
+	// 3. href/% for directory
+	return d.findIdsWithStmt(d.findIdsByPathPrefixStmt, href+"%", href+"%/%", href+"/%")
+}
+
+func (d *NoteDAO) findIdsWithStmt(stmt *LazyStmt, args ...any) ([]core.NoteID, error) {
 	ids := []core.NoteID{}
-	rows, err := d.findIdsByPathRegexStmt.Query(regex)
+	rows, err := stmt.Query(args...)
 	if err != nil {
 		return ids, err
 	}
@@ -238,26 +271,7 @@ func (d *NoteDAO) findIdsByPathRegex(regex string) ([]core.NoteID, error) {
 	return ids, nil
 }
 
-func (d *NoteDAO) findIdWithStmt(stmt *LazyStmt, args ...interface{}) (core.NoteID, error) {
-	row, err := stmt.QueryRow(args...)
-	if err != nil {
-		return core.NoteID(0), err
-	}
-
-	var id sql.NullInt64
-	err = row.Scan(&id)
-
-	switch {
-	case err == sql.ErrNoRows:
-		return 0, nil
-	case err != nil:
-		return 0, err
-	default:
-		return core.NoteID(id.Int64), nil
-	}
-}
-
-func (d *NoteDAO) FindIdByHref(href string, allowPartialHref bool) (core.NoteID, error) {
+func (d *NoteDAO) FindIDByHref(href string, allowPartialHref bool) (core.NoteID, error) {
 	ids, err := d.FindIdsByHref(href, allowPartialHref)
 	if len(ids) == 0 || err != nil {
 		return 0, err
@@ -283,30 +297,36 @@ func (d *NoteDAO) FindIdsByHref(href string, allowPartialHref bool) ([]core.Note
 	// matching a sub-section in the note.
 	href = strings.SplitN(href, "#", 2)[0]
 
-	href = regexp.QuoteMeta(href)
+	href = strings.NewReplacer("%", "\\%", "_", "\\_").Replace(href)
 
-	// Prioritise exact match with extension
-	exactWithMdIds, err := d.findIdsByPathRegex("^" + href + "\\.md$")
+	// Prioritise exact match with extension.
+	id, err := d.FindIDByPath(href + ".md")
 	if err != nil {
 		return nil, err
 	}
-	if len(exactWithMdIds) > 0 {
-		return exactWithMdIds, nil
+	if id.IsValid() {
+		return []core.NoteID{id}, nil
 	}
 
+	var ids []core.NoteID
 	if allowPartialHref {
-		ids, err := d.findIdsByPathRegex("^(.*/)?[^/]*" + href + "[^/]*$")
+		// Filename (not path) contains 'href' anywhere.
+		ids, err = d.findIdsByFilenameLike("%" + href + "%")
 		if len(ids) > 0 || err != nil {
 			return ids, err
 		}
 
-		ids, err = d.findIdsByPathRegex(".*" + href + ".*")
+		// Path contains 'href' anywhere.
+		ids, err = d.findIdsByPathLike("%" + href + "%")
 		if len(ids) > 0 || err != nil {
 			return ids, err
 		}
 	}
 
-	ids, err := d.findIdsByPathRegex("^(?:" + href + "[^/]*|" + href + "/.+)$")
+	// Path either:
+	// 1. starts with 'href' and has no slash after href.
+	// 2. starts with 'href/', followed by more content.
+	ids, err = d.findIdsByPathPrefix(href)
 	if len(ids) > 0 || err != nil {
 		return ids, err
 	}
@@ -398,7 +418,7 @@ func (d *NoteDAO) expandMentionsIntoMatch(opts core.NoteFindOpts) (core.NoteFind
 		return opts, err
 	}
 	if len(ids) == 0 {
-		return opts, fmt.Errorf("could not find notes at: " + strings.Join(opts.Mention, ", "))
+		return opts, fmt.Errorf("could not find notes at: %s", strings.Join(opts.Mention, ", "))
 	}
 
 	// Exclude the mentioned notes from the results.
@@ -448,7 +468,7 @@ func (d *NoteDAO) findRows(opts core.NoteFindOpts, selection noteSelection) (*sq
 	joinClauses := []string{}
 	whereExprs := []string{}
 	additionalOrderTerms := []string{}
-	args := []interface{}{}
+	args := []any{}
 	groupBy := ""
 
 	transitiveClosure := false
@@ -460,7 +480,7 @@ func (d *NoteDAO) findRows(opts core.NoteFindOpts, selection noteSelection) (*sq
 			return err
 		}
 		if len(ids) == 0 {
-			return fmt.Errorf("could not find notes at: " + strings.Join(hrefs, ", "))
+			return fmt.Errorf("could not find notes at: %s", strings.Join(hrefs, ", "))
 		}
 		idsList := "(" + joinNoteIDs(ids, ",") + ")"
 
@@ -545,7 +565,6 @@ func (d *NoteDAO) findRows(opts core.NoteFindOpts, selection noteSelection) (*sq
 				whereExprs = append(whereExprs, "n.raw_content REGEXP ?")
 				args = append(args, match)
 			}
-			break
 		}
 	}
 
@@ -619,7 +638,7 @@ WHERE collection_id IN (SELECT id FROM collections t WHERE kind = '%s' AND (%s))
 			return nil, err
 		}
 		if len(ids) == 0 {
-			return nil, fmt.Errorf("could not find notes at: " + strings.Join(opts.MentionedBy, ", "))
+			return nil, fmt.Errorf("could not find notes at: %s", strings.Join(opts.MentionedBy, ", "))
 		}
 
 		// Exclude the mentioning notes from the results.
@@ -714,11 +733,11 @@ WHERE collection_id IN (SELECT id FROM collections t WHERE kind = '%s' AND (%s))
 	orderTerms = append(orderTerms, additionalOrderTerms...)
 	orderTerms = append(orderTerms, `n.title ASC`)
 
-	query := ""
+	var query strings.Builder
 
 	// Credit to https://inviqa.com/blog/storing-graphs-database-sql-meets-social-network
 	if transitiveClosure {
-		query += `WITH RECURSIVE transitive_closure(source_id, target_id, title, snippet, distance, path) AS (
+		query.WriteString(`WITH RECURSIVE transitive_closure(source_id, target_id, title, snippet, distance, path) AS (
     SELECT source_id, target_id, title, snippet,
            1 AS distance,
            '.' || source_id || '.' || target_id || '.' AS path
@@ -732,63 +751,50 @@ WHERE collection_id IN (SELECT id FROM collections t WHERE kind = '%s' AND (%s))
       FROM links AS l
       JOIN transitive_closure AS tc
         ON l.source_id = tc.target_id
-     WHERE tc.path NOT LIKE '%.' || l.target_id || '.%'`
+     WHERE tc.path NOT LIKE '%.' || l.target_id || '.%'`)
 
 		if maxDistance != 0 {
-			query += fmt.Sprintf(" AND tc.distance < %d", maxDistance)
+			fmt.Fprintf(&query, " AND tc.distance < %d", maxDistance)
 		}
 
 		// Guard against infinite loops by limiting the number of recursions.
-		query += "\n     LIMIT 100000"
+		query.WriteString("\n     LIMIT 100000")
 
-		query += "\n)\n"
+		query.WriteString("\n)\n")
 	}
 
-	query += "SELECT n.id"
+	query.WriteString("SELECT n.id")
 	if selection != noteSelectionID {
-		query += ", n.path, n.title, n.metadata"
+		query.WriteString(", n.path, n.title, n.metadata")
 		if selection != noteSelectionMinimal {
-			query += fmt.Sprintf(", n.lead, n.body, n.raw_content, n.word_count, n.created, n.modified, n.checksum, n.tags, %s AS snippet", snippetCol)
+			fmt.Fprintf(&query, ", n.lead, n.body, n.raw_content, n.word_count, n.created, n.modified, n.checksum, n.tags, %s AS snippet", snippetCol)
 		}
 	}
 
-	query += "\nFROM notes_with_metadata n\n"
+	query.WriteString("\nFROM notes_with_metadata n\n")
 
 	for _, clause := range joinClauses {
-		query += clause + "\n"
+		query.WriteString(clause + "\n")
 	}
 
 	if len(whereExprs) > 0 {
-		query += "WHERE " + strings.Join(whereExprs, "\nAND ") + "\n"
+		query.WriteString("WHERE " + strings.Join(whereExprs, "\nAND ") + "\n")
 	}
 
 	if groupBy != "" {
-		query += groupBy + "\n"
+		query.WriteString(groupBy + "\n")
 	}
 
-	query += "ORDER BY " + strings.Join(orderTerms, ", ") + "\n"
+	query.WriteString("ORDER BY " + strings.Join(orderTerms, ", ") + "\n")
 
 	if opts.Limit > 0 {
-		query += fmt.Sprintf("LIMIT %d\n", opts.Limit)
+		fmt.Fprintf(&query, "LIMIT %d\n", opts.Limit)
 	}
 
 	// d.logger.Println(query)
 	// d.logger.Println(args)
 
-	return d.tx.Query(query, args...)
-}
-
-func (d *NoteDAO) scanNoteID(row RowScanner) (core.NoteID, error) {
-	var id int
-	err := row.Scan(&id)
-	switch {
-	case err == sql.ErrNoRows:
-		return 0, nil
-	case err != nil:
-		return 0, err
-	default:
-		return core.NoteID(id), nil
-	}
+	return d.tx.Query(query.String(), args...)
 }
 
 func (d *NoteDAO) scanMinimalNote(row RowScanner) (*core.MinimalNote, error) {
@@ -910,7 +916,7 @@ func buildMentionQuery(title, metadataJSON string) string {
 	if err == nil {
 		if aliases, ok := metadata["aliases"]; ok {
 			switch aliases := aliases.(type) {
-			case []interface{}:
+			case []any:
 				for _, alias := range aliases {
 					appendTitle(fmt.Sprint(alias))
 				}
