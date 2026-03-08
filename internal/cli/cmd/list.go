@@ -13,7 +13,8 @@ import (
 
 // List displays notes matching a set of criteria.
 type List struct {
-	Format     string `group:format short:f placeholder:TEMPLATE   help:"Pretty print the list using a custom template or one of the predefined formats: oneline, short, medium, long, full, json, jsonl."`
+	Format     string `group:format short:f placeholder:TEMPLATE   help:"Pretty print the list using a custom template or one of the predefined formats: oneline, short, medium, long, full, json, jsonl, url."`
+	Link       bool   `group:format                                help:"Print the zk:// URI of each note (shorthand for --format zk-url)."`
 	Header     string `group:format                                help:"Arbitrary text printed at the start of the list."`
 	Footer     string `group:format default:\n                     help:"Arbitrary text printed at the end of the list."`
 	Delimiter  string "group:format short:d default:\n             help:\"Print notes delimited by the given separator.\""
@@ -24,6 +25,13 @@ type List struct {
 }
 
 func (cmd *List) Run(container *cli.Container) error {
+	if cmd.Link {
+		if cmd.Format != "" {
+			return errors.New("--link and --format can't be used together")
+		}
+		cmd.Format = "url"
+	}
+
 	cmd.Header = strings.ExpandWhitespaceLiterals(cmd.Header)
 	cmd.Footer = strings.ExpandWhitespaceLiterals(cmd.Footer)
 	cmd.Delimiter = strings.ExpandWhitespaceLiterals(cmd.Delimiter)
@@ -150,10 +158,11 @@ func (cmd *List) noteTemplate() string {
 }
 
 var defaultNoteFormats = map[string]string{
-	"json":  `{{json .}}`,
-	"jsonl": `{{json .}}`,
-	"path":  `{{path}}`,
-	"link":  `{{link}}`,
+	"json":   `{{json .}}`,
+	"jsonl":  `{{json .}}`,
+	"path":   `{{path}}`,
+	"link":   `{{link}}`,
+	"url": `{{url}}`,
 
 	"oneline": `{{style "title" title}} {{style "path" path}} ({{format-date created "elapsed"}})`,
 

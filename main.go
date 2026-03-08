@@ -29,6 +29,7 @@ var root struct {
 	List  cmd.List  `cmd group:"notes" help:"List notes matching the given criteria."`
 	Graph cmd.Graph `cmd group:"notes" help:"Produce a graph of the notes matching the given criteria."`
 	Edit  cmd.Edit  `cmd group:"notes" help:"Edit notes matching the given criteria."`
+	Open  cmd.Open  `cmd group:"notes" help:"Open a note by its zk:// URI."`
 	Tag   cmd.Tag   `cmd group:"notes" help:"Manage the note tags."`
 
 	NotebookDir string  `type:path placeholder:PATH help:"Turn off notebook auto-discovery and set manually the notebook where commands are run."`
