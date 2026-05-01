@@ -77,7 +77,7 @@ func TestLookupPaths(t *testing.T) {
 	test1 := filepath.Join(path1, "test1.tpl")
 
 	tpl1, err := sut.LoadTemplateAt(test1)
-	assert.Err(t, err, "cannot find template at "+test1)
+	assert.Err(t, err, "cannot locate template at "+test1)
 	assert.Nil(t, tpl1)
 
 	paths.WriteString(test1, "Test 1")
@@ -394,6 +394,7 @@ func testLoader(opts LoaderOpts) *Loader {
 
 	loader.RegisterHelper("style", helpers.NewStyleHelper(opts.Styler, &util.NullLogger))
 	loader.RegisterHelper("slug", helpers.NewSlugHelper("en", &util.NullLogger))
+	loader.RegisterHelper("sh", helpers.NewShellHelper(&util.NullLogger, "sh"))
 
 	formatter := func(context core.LinkFormatterContext) (string, error) {
 		return context.Path + " - " + context.Title, nil

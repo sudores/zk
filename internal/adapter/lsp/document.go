@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"fmt"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -13,10 +14,10 @@ import (
 	gmext "github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
+	"github.com/zk-org/zk/internal/adapter/markdown"
 	"github.com/zk-org/zk/internal/adapter/markdown/extensions"
 	"github.com/zk-org/zk/internal/core"
 	"github.com/zk-org/zk/internal/util"
-	"github.com/zk-org/zk/internal/util/errors"
 	strutil "github.com/zk-org/zk/internal/util/strings"
 )
 
@@ -72,7 +73,7 @@ func (s *documentStore) Get(pathOrURI string) (*document, bool) {
 func (s *documentStore) normalizePath(pathOrURI string) (string, error) {
 	path, err := uriToPath(pathOrURI)
 	if err != nil {
-		return "", errors.Wrapf(err, "unable to parse URI: %s", pathOrURI)
+		return "", fmt.Errorf("unable to parse URI: %s: %w", pathOrURI, err)
 	}
 	return s.fs.Canonical(path), nil
 }
@@ -107,7 +108,11 @@ func (d *document) WordAt(pos protocol.Position) string {
 	if !ok {
 		return ""
 	}
-	return strutil.WordAt(line, int(pos.Character))
+	utf16Bytes := utf16.Encode([]rune(line))
+	charIdx := min(int(pos.Character), len(utf16Bytes))
+	strChar := len(string(utf16.Decode(utf16Bytes[0:charIdx])))
+
+	return strutil.WordAt(line, strChar)
 }
 
 // ContentAtRange returns the document text at given range.
@@ -137,12 +142,13 @@ func (d *document) GetLines() []string {
 // LookBehind returns the n characters before the given position, on the same line.
 func (d *document) LookBehind(pos protocol.Position, length int) string {
 	line, ok := d.GetLine(int(pos.Line))
-	utf16Bytes := utf16.Encode([]rune(line))
 	if !ok {
 		return ""
 	}
+	utf16Bytes := utf16.Encode([]rune(line))
 
-	charIdx := int(pos.Character)
+	charIdx := min(int(pos.Character), len(utf16Bytes))
+
 	if length > charIdx {
 		return string(utf16.Decode(utf16Bytes[0:charIdx]))
 	}
@@ -158,7 +164,7 @@ func (d *document) LookForward(pos protocol.Position, length int) string {
 	}
 
 	lineLength := len(utf16Bytes)
-	charIdx := int(pos.Character)
+	charIdx := min(int(pos.Character), len(utf16Bytes))
 	if lineLength <= charIdx+length {
 		return string(utf16.Decode(utf16Bytes[charIdx:]))
 	}
@@ -200,7 +206,6 @@ var documentParser = goldmark.New(
 	goldmark.WithExtensions(
 		gmext.Footnote,
 		extensions.WikiLinkExt,
-		extensions.MarkdownLinkExt,
 	),
 )
 
@@ -260,7 +265,7 @@ func (d *document) DocumentLinks() ([]documentLink, error) {
 		}
 
 		switch link := n.(type) {
-		case *extensions.MarkdownLink:
+		case *ast.Link:
 			href := string(link.Destination)
 			if href == "" {
 				return ast.WalkContinue, nil
@@ -275,12 +280,17 @@ func (d *document) DocumentLinks() ([]documentLink, error) {
 				href = decodedHref
 			}
 
+			pos := markdown.GetLinkPosition(link, source)
+			if pos == nil {
+				return ast.WalkContinue, nil
+			}
+
 			links = append(links, documentLink{
 				Href:          href,
 				RelativeToDir: filepath.Dir(d.Path),
 				Range: protocol.Range{
-					Start: byteOffsetToPosition(link.StartOffset, source, lineOffsets),
-					End:   byteOffsetToPosition(link.EndOffset, source, lineOffsets),
+					Start: byteOffsetToPosition(pos.Start, source, lineOffsets),
+					End:   byteOffsetToPosition(pos.End, source, lineOffsets),
 				},
 				IsWikiLink: false,
 			})
@@ -314,7 +324,14 @@ func (d *document) IsTagPosition(position protocol.Position, noteContentParser c
 	lines := strutil.CopyList(d.GetLines())
 	lineIdx := int(position.Line)
 	charIdx := int(position.Character)
+	if len(lines) <= lineIdx {
+		return false
+	}
 	line := lines[lineIdx]
+	utf16Len := len(utf16.Encode([]rune(line)))
+	if utf16Len < charIdx {
+		return false
+	}
 	// https://github.com/zk-org/zk/issues/144#issuecomment-1006108485
 	line = line[:charIdx] + "ZK_PLACEHOLDER" + line[charIdx:]
 	lines[lineIdx] = line

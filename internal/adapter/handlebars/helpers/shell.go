@@ -8,13 +8,14 @@ import (
 	"github.com/zk-org/zk/internal/util/exec"
 )
 
-// RegisterShell registers the {{sh}} template helper, which runs shell commands.
+// NewShellHelper returns a {{sh}} template helper function that runs shell commands.
+// The shellProvider function is called to determine which shell to use.
 //
 // {{#sh "tr '[a-z]' '[A-Z]'"}}Hello, world!{{/sh}} -> HELLO, WORLD!
 // {{sh "echo 'Hello, world!'"}} -> Hello, world!
-func RegisterShell(logger util.Logger) {
-	raymond.RegisterHelper("sh", func(arg string, options *raymond.Options) string {
-		cmd := exec.CommandFromString(arg)
+func NewShellHelper(logger util.Logger, shell string) interface{} {
+	return func(arg string, options *raymond.Options) string {
+		cmd := exec.CommandFromString(shell, arg)
 
 		// Feed any block content as piped input
 		cmd.Stdin = strings.NewReader(options.Fn())
@@ -26,5 +27,5 @@ func RegisterShell(logger util.Logger) {
 		}
 
 		return strings.TrimSpace(string(output))
-	})
+	}
 }

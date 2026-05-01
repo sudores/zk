@@ -8,7 +8,6 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 	toml "github.com/pelletier/go-toml"
-	"github.com/zk-org/zk/internal/util/errors"
 	"github.com/zk-org/zk/internal/util/opt"
 	"github.com/zk-org/zk/internal/util/paths"
 )
@@ -123,7 +122,7 @@ func (c Config) GroupNameForPath(path string) (string, error) {
 		for _, groupPath := range config.Paths {
 			matches, err := doublestar.Match(groupPath, path)
 			if err != nil {
-				return "", errors.Wrapf(err, "failed to match group %s to %s", name, path)
+				return "", fmt.Errorf("failed to match group %s to %s: %w", name, path, err)
 			} else if matches {
 				// Early return if an exact match
 				return name, nil
@@ -305,7 +304,7 @@ func OpenConfig(path string, parentConfig Config, fs FileStorage, isGlobal bool)
 
 	content, err := fs.Read(path)
 	if err != nil {
-		return parentConfig, errors.Wrapf(err, "failed to open config file at %s", path)
+		return parentConfig, fmt.Errorf("failed to open config file at %s: %w", path, err)
 	}
 
 	return ParseConfig(content, path, parentConfig, isGlobal)
@@ -317,14 +316,12 @@ func OpenConfig(path string, parentConfig Config, fs FileStorage, isGlobal bool)
 //
 // The parentConfig will be used to inherit default config settings.
 func ParseConfig(content []byte, path string, parentConfig Config, isGlobal bool) (Config, error) {
-	wrap := errors.Wrapperf("failed to read config")
-
 	config := parentConfig
 
 	var tomlConf tomlConfig
 	err := toml.Unmarshal(content, &tomlConf)
 	if err != nil {
-		return config, wrap(err)
+		return config, fmt.Errorf("failed to read config: %w", err)
 	}
 
 	// Notebook
@@ -333,7 +330,7 @@ func ParseConfig(content []byte, path string, parentConfig Config, isGlobal bool
 		if isGlobal {
 			config.Notebook.Dir = opt.NewNotEmptyString(notebook.Dir)
 		} else {
-			return config, wrap(errors.New("notebook.dir should not be set on local configuration"))
+			return config, fmt.Errorf("notebook.dir should not be set on local configuration")
 		}
 	}
 
@@ -348,7 +345,7 @@ func ParseConfig(content []byte, path string, parentConfig Config, isGlobal bool
 	if note.Template != "" {
 		expanded, err := paths.ExpandPath(note.Template)
 		if err != nil {
-			return config, wrap(err)
+			return config, fmt.Errorf("failed to expand template path from config: %w", err)
 		}
 		config.Note.BodyTemplatePath = opt.NewNotEmptyString(expanded)
 	}
@@ -451,29 +448,29 @@ func ParseConfig(content []byte, path string, parentConfig Config, isGlobal bool
 	if lspDiags.WikiTitle != nil {
 		config.LSP.Diagnostics.WikiTitle, err = lspDiagnosticSeverityFromString(*lspDiags.WikiTitle)
 		if err != nil {
-			return config, wrap(err)
+			return config, fmt.Errorf("failed to parse wikititle level: %w", err)
 		}
 	}
 	if lspDiags.DeadLink != nil {
 		config.LSP.Diagnostics.DeadLink, err = lspDiagnosticSeverityFromString(*lspDiags.DeadLink)
 		if err != nil {
-			return config, wrap(err)
+			return config, fmt.Errorf("failed to parse deadlink level: %w", err)
 		}
 	}
 	if lspDiags.SelfLink != nil {
 		config.LSP.Diagnostics.SelfLink, err = lspDiagnosticSeverityFromString(*lspDiags.SelfLink)
 		if err != nil {
-			return config, wrap(err)
+			return config, fmt.Errorf("failed to parse deadlink level: %w", err)
 		}
 	}
 	if lspDiags.MissingBacklink != nil {
 		config.LSP.Diagnostics.MissingBacklink.Level, err = lspDiagnosticSeverityFromString(lspDiags.MissingBacklink.Level)
 		if err != nil {
-			return config, wrap(err)
+			return config, fmt.Errorf("failed to parse missing backlink level: %w", err)
 		}
 		config.LSP.Diagnostics.MissingBacklink.Position, err = lspDiagnosticPositionFromString(lspDiags.MissingBacklink.Position)
 		if err != nil {
-			return config, wrap(err)
+			return config, fmt.Errorf("failed to parse missing backlink position: %w", err)
 		}
 	}
 

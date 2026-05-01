@@ -5,10 +5,19 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+
+	"github.com/zk-org/zk/internal/util/opt"
 )
 
+// ResolveShell returns the shell to use. On Windows, this always returns "cmd"
+// as the shell configuration is not applicable.
+func ResolveShell(configShell opt.String) string {
+	return "cmd"
+}
+
 // CommandFromString returns a Cmd running the given command.
-func CommandFromString(command string, args ...string) *exec.Cmd {
+// The shell parameter is ignored on Windows as it uses cmd directly.
+func CommandFromString(shell, command string, args ...string) *exec.Cmd {
 	cmd := exec.Command("cmd")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    false,

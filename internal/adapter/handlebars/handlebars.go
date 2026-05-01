@@ -9,7 +9,6 @@ import (
 	"github.com/zk-org/zk/internal/adapter/handlebars/helpers"
 	"github.com/zk-org/zk/internal/core"
 	"github.com/zk-org/zk/internal/util"
-	"github.com/zk-org/zk/internal/util/errors"
 	"github.com/zk-org/zk/internal/util/paths"
 )
 
@@ -21,7 +20,6 @@ func Init(supportsUTF8 bool, logger util.Logger) {
 	helpers.RegisterJSON(logger)
 	helpers.RegisterList(supportsUTF8)
 	helpers.RegisterPrepend(logger)
-	helpers.RegisterShell(logger)
 	helpers.RegisterSubstring()
 }
 
@@ -40,7 +38,7 @@ func (t *Template) Styler() core.Styler {
 func (t *Template) Render(context any) (string, error) {
 	res, err := t.template.Exec(context)
 	if err != nil {
-		return "", errors.Wrap(err, "render template failed")
+		return "", fmt.Errorf("render template failed: %w", err)
 	}
 	return html.UnescapeString(res), nil
 }
@@ -51,7 +49,7 @@ type Loader struct {
 	files       map[string]*Template
 	lookupPaths []string
 	styler      core.Styler
-	helpers     map[string]interface{}
+	helpers     map[string]any
 }
 
 type LoaderOpts struct {
@@ -67,19 +65,17 @@ func NewLoader(opts LoaderOpts) *Loader {
 		files:       make(map[string]*Template),
 		lookupPaths: opts.LookupPaths,
 		styler:      opts.Styler,
-		helpers:     map[string]interface{}{},
+		helpers:     map[string]any{},
 	}
 }
 
 // RegisterHelper declares a new template helper to be used with this loader only.
-func (l *Loader) RegisterHelper(name string, helper interface{}) {
+func (l *Loader) RegisterHelper(name string, helper any) {
 	l.helpers[name] = helper
 }
 
 // LoadTemplate implements core.TemplateLoader.
 func (l *Loader) LoadTemplate(content string) (core.Template, error) {
-	wrap := errors.Wrapperf("load template failed")
-
 	// Already loaded?
 	template, ok := l.strings[content]
 	if ok {
@@ -89,7 +85,7 @@ func (l *Loader) LoadTemplate(content string) (core.Template, error) {
 	// Load new template.
 	vendorTempl, err := raymond.Parse(content)
 	if err != nil {
-		return nil, wrap(err)
+		return nil, fmt.Errorf("parse template failed: %w", err)
 	}
 	template = l.newTemplate(vendorTempl)
 	l.strings[content] = template
@@ -98,11 +94,9 @@ func (l *Loader) LoadTemplate(content string) (core.Template, error) {
 
 // LoadTemplateAt implements core.TemplateLoader.
 func (l *Loader) LoadTemplateAt(path string) (core.Template, error) {
-	wrap := errors.Wrapper("load template file failed")
-
 	path, ok := l.locateTemplate(path)
 	if !ok {
-		return nil, wrap(fmt.Errorf("cannot find template at %s", path))
+		return nil, fmt.Errorf("cannot locate template at %s", path)
 	}
 
 	// Already loaded?
@@ -114,7 +108,7 @@ func (l *Loader) LoadTemplateAt(path string) (core.Template, error) {
 	// Load new template.
 	vendorTempl, err := raymond.ParseFile(path)
 	if err != nil {
-		return nil, wrap(err)
+		return nil, fmt.Errorf("parse template failed: %w", err)
 	}
 	template = l.newTemplate(vendorTempl)
 	l.files[path] = template

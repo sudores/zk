@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,7 +17,7 @@ import (
 	"github.com/zk-org/zk/internal/adapter/term"
 	"github.com/zk-org/zk/internal/core"
 	"github.com/zk-org/zk/internal/util"
-	"github.com/zk-org/zk/internal/util/errors"
+	executil "github.com/zk-org/zk/internal/util/exec"
 	osutil "github.com/zk-org/zk/internal/util/os"
 	"github.com/zk-org/zk/internal/util/pager"
 	"github.com/zk-org/zk/internal/util/paths"
@@ -42,8 +44,6 @@ type Container struct {
 }
 
 func NewContainer(version string) (*Container, error) {
-	wrap := errors.Wrapper("initialization")
-
 	term := term.New()
 	styler := core.NewProxyStyler(term)
 	logger := util.NewProxyLogger(util.NewStdLogger("zk: ", 0))
@@ -65,12 +65,12 @@ func NewContainer(version string) (*Container, error) {
 	// Load global user config
 	configPath, err := locateGlobalConfig()
 	if err != nil {
-		return nil, wrap(err)
+		return nil, fmt.Errorf("locating config failed: %w", err)
 	}
 	if configPath != "" {
 		config, err = core.OpenConfig(configPath, config, fs, true)
 		if err != nil {
-			return nil, wrap(err)
+			return nil, fmt.Errorf("opening config failed: %w", err)
 		}
 	}
 
@@ -79,15 +79,14 @@ func NewContainer(version string) (*Container, error) {
 	if osutil.GetOptEnv("ZK_NOTEBOOK_DIR").IsNull() && !config.Notebook.Dir.IsNull() {
 		notebookDir, err := paths.ExpandPath(config.Notebook.Dir.Unwrap())
 		if err != nil {
-			return nil, wrap(err)
+			return nil, fmt.Errorf("expanding notebook dir failed: %w", err)
 		}
 		os.Setenv("ZK_NOTEBOOK_DIR", notebookDir)
 	}
 
-	// Set the default shell if not already set
-	if osutil.GetOptEnv("ZK_SHELL").IsNull() && !config.Tool.Shell.IsEmpty() {
-		os.Setenv("ZK_SHELL", config.Tool.Shell.Unwrap())
-	}
+	// Register the shell helper with the resolved shell.
+	shell := executil.ResolveShell(config.Tool.Shell)
+	templateLoader.RegisterHelper("sh", hbhelpers.NewShellHelper(logger, shell))
 
 	return &Container{
 		Version:        version,
@@ -108,7 +107,7 @@ func NewContainer(version string) (*Container, error) {
 				}
 
 				notebook := core.NewNotebook(path, config, core.NotebookPorts{
-					NoteIndex: sqlite.NewNoteIndex(path, db, logger),
+					NoteIndex: sqlite.NewNoteIndex(path, db, logger, config.Note.Extension),
 					NoteContentParser: markdown.NewParser(
 						markdown.ParserOpts{
 							HashtagEnabled:      config.Format.Markdown.Hashtags,
@@ -128,6 +127,7 @@ func NewContainer(version string) (*Container, error) {
 
 						loader.RegisterHelper("style", hbhelpers.NewStyleHelper(styler, logger))
 						loader.RegisterHelper("slug", hbhelpers.NewSlugHelper(language, logger))
+						loader.RegisterHelper("sh", hbhelpers.NewShellHelper(logger, executil.ResolveShell(config.Tool.Shell)))
 
 						linkFormatter, err := core.NewLinkFormatter(config.Format.Markdown, loader)
 						if err != nil {
@@ -237,7 +237,8 @@ func (c *Container) NewNoteFilter(opts fzf.NoteFilterOpts) *fzf.NoteFilter {
 }
 
 func (c *Container) NewNoteEditor(notebook *core.Notebook) (*editor.Editor, error) {
-	return editor.NewEditor(notebook.Config.Tool.Editor)
+	shell := executil.ResolveShell(notebook.Config.Tool.Shell)
+	return editor.NewEditor(notebook.Config.Tool.Editor, shell)
 }
 
 // Paginate creates an auto-closing io.Writer which will be automatically
@@ -258,6 +259,7 @@ func (c *Container) pager(noPager bool) (*pager.Pager, error) {
 	if noPager || !c.Terminal.IsInteractive() {
 		return pager.PassthroughPager, nil
 	} else {
-		return pager.New(c.Config.Tool.Pager, c.Logger)
+		shell := executil.ResolveShell(c.Config.Tool.Shell)
+		return pager.New(c.Config.Tool.Pager, shell, c.Logger)
 	}
 }

@@ -21,15 +21,14 @@ import (
 var Version = "dev"
 
 var root struct {
-	Init  cmd.Init  `cmd group:"zk" help:"Create a new notebook in the given directory."`
-	Index cmd.Index `cmd group:"zk" help:"Index the notes to be searchable."`
+	Init   cmd.Init   `cmd group:"zk" help:"Create a new notebook in the given directory."`
+	Index  cmd.Index  `cmd group:"zk" help:"Index the notes to be searchable."`
 	Config cmd.Config `cmd group:"zk" help:"List configuration parameters."`
 
 	New   cmd.New   `cmd group:"notes" help:"Create a new note in the given notebook directory."`
 	List  cmd.List  `cmd group:"notes" help:"List notes matching the given criteria."`
 	Graph cmd.Graph `cmd group:"notes" help:"Produce a graph of the notes matching the given criteria."`
 	Edit  cmd.Edit  `cmd group:"notes" help:"Edit notes matching the given criteria."`
-	Open  cmd.Open  `cmd group:"notes" help:"Open a note by its zk:// URI."`
 	Tag   cmd.Tag   `cmd group:"notes" help:"Manage the note tags."`
 
 	NotebookDir string  `type:path placeholder:PATH help:"Turn off notebook auto-discovery and set manually the notebook where commands are run."`
@@ -182,7 +181,8 @@ func runAlias(container *cli.Container, args []string) (bool, error) {
 			cmdStr = `cd "` + notebook.Path + `" && ` + cmdStr
 		}
 
-		cmd := executil.CommandFromString(cmdStr, args[1:]...)
+		shell := executil.ResolveShell(container.Config.Tool.Shell)
+		cmd := executil.CommandFromString(shell, cmdStr, args[1:]...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

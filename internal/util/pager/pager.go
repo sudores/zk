@@ -10,7 +10,6 @@ import (
 
 	"github.com/kballard/go-shellquote"
 	"github.com/zk-org/zk/internal/util"
-	"github.com/zk-org/zk/internal/util/errors"
 	executil "github.com/zk-org/zk/internal/util/exec"
 	"github.com/zk-org/zk/internal/util/opt"
 	osutil "github.com/zk-org/zk/internal/util/os"
@@ -32,19 +31,17 @@ var PassthroughPager = &Pager{
 }
 
 // New creates a pager.Pager to be used to write a paginated text to the terminal.
-func New(pagerCmd opt.String, logger util.Logger) (*Pager, error) {
-	wrap := errors.Wrapper("failed to paginate the output, try again with --no-pager or fix your PAGER environment variable")
-
+func New(pagerCmd opt.String, shell string, logger util.Logger) (*Pager, error) {
 	pagerCmd = selectPagerCmd(pagerCmd)
 	if pagerCmd.IsNull() {
 		return PassthroughPager, nil
 	}
 
-	cmd := executil.CommandFromString(pagerCmd.String())
+	cmd := executil.CommandFromString(shell, pagerCmd.String())
 
 	r, w, err := os.Pipe()
 	if err != nil {
-		return nil, wrap(err)
+		return nil, fmt.Errorf("failed to create pipe for pager: %w", err)
 	}
 
 	cmd.Stdin = r
@@ -71,7 +68,7 @@ func New(pagerCmd opt.String, logger util.Logger) (*Pager, error) {
 
 		err := cmd.Run()
 		if err != nil {
-			logger.Err(wrap(err))
+			logger.Err(fmt.Errorf("failed to paginate the output, try again with --no-pager or fix your PAGER environment variable: %w", err))
 			os.Exit(1)
 		}
 	}()

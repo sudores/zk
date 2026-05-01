@@ -14,20 +14,19 @@ $ zk config --help
 >                             current working directory.
 >      --no-input             Never prompt or ask for confirmation.
 >
->  -l, --list=OBJECT          list configuration objects. Possible ojects are
->                             aliases, filters or extras.
+>  -l, --list=OBJECT          List configuration objects. Listable objects are:
+>                             aliases, filters and extras.
 >
 >Formatting
->  -f, --format=TEMPLATE    Pretty print the list using a custom template or one
->                           of the predefined formats: short, full, json, jsonl.
+>  -f, --format=TEMPLATE    Pretty print the list using a custom template or
+>                           predefined formats: short, full, json.
 >      --header=STRING      Arbitrary text printed at the start of the list.
 >      --footer="\\n"       Arbitrary text printed at the end of the list.
->  -d, --delimiter="\n"     Print tags delimited by the given separator.
->  -0, --delimiter0         Print tags delimited by ASCII NUL characters. This is
->                           useful when used in conjunction with `xargs -0`.
+>  -d, --delimiter="\\n"    Print tags delimited by the given separator.
+>  -0, --delimiter0         Print tags delimited by ASCII NUL characters.
+>                           Useful with xargs -0.
 >  -P, --no-pager           Do not pipe output into a pager.
 >  -q, --quiet              Do not print the total number of tags found.
-
 # Print short aliases list.
 $ zk config --list aliases
 >conf
@@ -56,20 +55,7 @@ $ zk config --list aliases --format=full
 
 # Print aliases as json.
 $ zk config --list aliases --format=json
->[{"conf":"$EDITOR "$ZK_NOTEBOOK_DIR/.zk/config.toml""},{"editlast":"zk edit --limit 1 --sort modified- $@"},{"hist":"zk list --format path --delimiter0 --quiet $@ | xargs -t -0 git log --patch --"},{"list":"zk list --quiet $@"},{"ls":"zk list $@"},{"lucky":"zk list --quiet --format full --sort random --limit 1"},{"path":"zk list --quiet --format \{{path}} --delimiter , $@"},{"recent":"zk edit --sort created- --created-after 'last two weeks' --interactive"}]
-2>
-2>Found 8 aliases
-
-# Print aliases as jsonl.
-$ zk config --list aliases --format=jsonl
->{"conf":"$EDITOR "$ZK_NOTEBOOK_DIR/.zk/config.toml""}
->{"editlast":"zk edit --limit 1 --sort modified- $@"}
->{"hist":"zk list --format path --delimiter0 --quiet $@ | xargs -t -0 git log --patch --"}
->{"list":"zk list --quiet $@"}
->{"ls":"zk list $@"}
->{"lucky":"zk list --quiet --format full --sort random --limit 1"}
->{"path":"zk list --quiet --format \{{path}} --delimiter , $@"}
->{"recent":"zk edit --sort created- --created-after 'last two weeks' --interactive"}
+>{"conf":"$EDITOR \"$ZK_NOTEBOOK_DIR/.zk/config.toml\"","editlast":"zk edit --limit 1 --sort modified- $@","hist":"zk list --format path --delimiter0 --quiet $@ | xargs -t -0 git log --patch --","list":"zk list --quiet $@","ls":"zk list $@","lucky":"zk list --quiet --format full --sort random --limit 1","path":"zk list --quiet --format \{{path}} --delimiter , $@","recent":"zk edit --sort created- --created-after 'last two weeks' --interactive"}
 2>
 2>Found 8 aliases
 
@@ -85,4 +71,3 @@ $ zk config --list extras --format=full
 >  visibility    public
 2>
 2>Found 2 extras
-
