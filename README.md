@@ -19,8 +19,6 @@ video,
 
 ### Highlights
 
-> Note: Links in the below list are outbound ↗
-
 - [Creating notes from templates](https://zk-org.github.io/zk/notes/note-creation.html)
 - [Advanced search and filtering capabilities](https://zk-org.github.io/zk/notes/note-filtering.html)
   including [tags](https://zk-org.github.io/zk/notes/tags.html), links and
@@ -118,6 +116,12 @@ official repos.
 sudo pacman -S zk
 ```
 
+### MacPorts
+
+```sh
+sudo port install zk
+```
+
 ### Build from scratch
 
 Make sure you have a working [Go 1.21+ installation](https://golang.org/), then
@@ -158,7 +162,7 @@ Here you can read
 
 - [Neuron](https://github.com/srid/neuron) – a great tool to publish a
   Zettelkasten on the web
-- [Emanote](https://emanote.srid.ca/) – an improved successor to Neuron
+- [Emanote](https://emanote.srid.ca/) – an improved successor to Neuron (see [Emanote configuration for zk](https://emanote.srid.ca/zk))
 - [Weave](https://github.com/matze/weave) – another tool to publish Zettelkasten
   on the web
 - [sirupsen's zk](https://github.com/sirupsen/zk) – a collection of scripts with

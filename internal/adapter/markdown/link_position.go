@@ -20,9 +20,9 @@ func GetLinkPosition(link *ast.Link, source []byte) *LinkPosition {
 		return nil
 	}
 
-	// Find the position of the next sibling node (or EOF)…
+	// Find the position of the next node (or EOF)…
 	searchStart := len(source)
-	if next := ast.Node(link).NextSibling(); next != nil {
+	if next := nextNodeInAST(link); next != nil {
 		searchStart = next.Pos()
 	}
 
@@ -33,5 +33,18 @@ func GetLinkPosition(link *ast.Link, source []byte) *LinkPosition {
 		}
 	}
 
+	return nil
+}
+
+// nextNodeInAST finds the next node in document order.
+func nextNodeInAST(n ast.Node) ast.Node {
+	if next := n.NextSibling(); next != nil {
+		return next
+	}
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if next := p.NextSibling(); next != nil {
+			return next
+		}
+	}
 	return nil
 }

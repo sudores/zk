@@ -169,3 +169,40 @@ func TestServer_buildInvokedCompletionList(t *testing.T) {
 		})
 	}
 }
+
+func TestDefinitionLinkSupport_NilCapabilities(t *testing.T) {
+	caps := protocol.ClientCapabilities{}
+	assert.Equal(t, definitionLinkSupport(caps), false)
+
+	caps = protocol.ClientCapabilities{
+		TextDocument: &protocol.TextDocumentClientCapabilities{},
+	}
+	assert.Equal(t, definitionLinkSupport(caps), false)
+
+	caps = protocol.ClientCapabilities{
+		TextDocument: &protocol.TextDocumentClientCapabilities{
+			Definition: &protocol.DefinitionClientCapabilities{},
+		},
+	}
+	assert.Equal(t, definitionLinkSupport(caps), false)
+
+	flag := false
+	caps = protocol.ClientCapabilities{
+		TextDocument: &protocol.TextDocumentClientCapabilities{
+			Definition: &protocol.DefinitionClientCapabilities{
+				LinkSupport: &flag,
+			},
+		},
+	}
+	assert.Equal(t, definitionLinkSupport(caps), false)
+
+	flag = true
+	caps = protocol.ClientCapabilities{
+		TextDocument: &protocol.TextDocumentClientCapabilities{
+			Definition: &protocol.DefinitionClientCapabilities{
+				LinkSupport: &flag,
+			},
+		},
+	}
+	assert.Equal(t, definitionLinkSupport(caps), true)
+}

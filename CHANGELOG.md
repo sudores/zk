@@ -9,7 +9,40 @@ Format: `<description> (by <contributor>, <pr number>)`
 
 ### Added
 
+- Parse links to notes in frontmatter (by @tjex, 710)
+- Set a note's modification time in frontmatter and allow for custom key naming
+  for both creation and modification keys (by @BennoLossin and @tjex, 531)
+
 ### Fixed
+
+- Indexing made significantly more performant (by @Keluaa, 735)
+- Support filtering by date and time with `"<date> <time>"` instead of
+  `<date>T<time>` only (by @tjex, 743)
+- Exclude globs now prune matching directories from indexing, improving speed of
+  indexing (by @ehsash, 741)
+
+## 0.15.5
+
+### Added
+
+- List, edit and filter for broken links with `--broken-links` (by
+  @WhyNotHugo, 708)
+- Update strftime package, supporting `%g` and `%G` formats in the
+  `{{format-date}}` helper (by @tjex, 723)
+- Option to append links to selected text, instead of replacing (by @tjex, 724)
+
+### Fixed
+
+- Paths with `~` and env variables no longer error when passed to
+  `--notebook-dir` and `--working-dir` (by @tjex, 732)
+- Guard LSP against unnecessary erroring on missing textDocument/definition
+  capabilities (by @SAY-5, 718)
+
+## 0.15.4
+
+### Fixed
+
+- "jump to definition" follows wrong link (by @WhyNotHugo, 703)
 
 ## 0.15.3
 
@@ -24,9 +57,12 @@ Format: `<description> (by <contributor>, <pr number>)`
 - Links in markdown footnotes now included in :ZkLinks (by @WhyNotHugo, 639)
 - Indexing notebook now 35% and 74% faster for full and incremental indexing
   respectively (by @WhyNotHugo, 642)
-- Stop crashing lsp server when server received `textDocument/completion` request with out of range parameters. (by @virusbb001, 667)
-- lsp: Provide completion after [[ on lines with multi-byte characters (by @virusbb001, 671)
-- Prevent crash in LookForward when the parameters is out of characters number. (by @virusbb001, 673)
+- Stop crashing lsp server when server received `textDocument/completion`
+  request with out of range parameters. (by @virusbb001, 667)
+- lsp: Provide completion after [[ on lines with multi-byte characters (by
+  @virusbb001, 671)
+- Prevent crash in LookForward when the parameters is out of characters number.
+  (by @virusbb001, 673)
 
 ## 0.15.2
 

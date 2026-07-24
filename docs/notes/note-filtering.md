@@ -63,7 +63,8 @@ The search is powered by different strategies to answer various use cases:
 - `re` enables regular expression for advanced use cases.
 
 Change the currently used strategy with `--match-strategy <strategy>` (or `-M`).
-To set the default strategy, you can declare a [custom alias](../config/config-alias.md):
+To set the default strategy, you can declare a
+[custom alias](../config/config-alias.md):
 
 ```toml
 [alias]
@@ -228,8 +229,8 @@ you use a separator (e.g. `/`) to group multiple tags under a parent tag.
 $ zk list --tag "year/201*"
 ```
 
-A useful [notebook housekeeping](../tips/notebook-housekeeping.md) feature is to find
-tags which _do not_ have tags.
+A useful [notebook housekeeping](../tips/notebook-housekeeping.md) feature is to
+find tags which _do not_ have tags.
 
 ```sh
 $ zk list --tagless
@@ -255,6 +256,15 @@ You can filter by range instead, using `--created-before`, `--created-after`,
 --created-after "last monday" --created-before yesterday
 ```
 
+Specifying a date and time can be in two formats:
+
+```
+--created-after 2026-06-01T15:00 --created-before 2026-06-01T18:00
+
+# Must be wrapped in quotes when ommitting 'T'
+--created-after "2026-06-01 15:00" --created-before "2026-06-01 18:00"
+```
+
 ## Explore links
 
 You can use the following options to explore the web of links spanning your
@@ -278,11 +288,17 @@ two notes with `--max-distance <count>`.
 --linked-by 200911172034 --recursive --max-distance 3
 ```
 
-Finally, it can be useful to see which notes have no links pointing to them at
-all. You can use the `--orphan` option for this.
+## Troubleshoot Links
 
-You can also find notes that are targets of links from other notes but don't
-link back to them using `--missing-backlink`.
+You can also find notes that are linked to from other notes but don't link back
+to them using `--missing-backlink`.
+
+It can also be useful to see which notes have no links pointing to them at all
+by using the `--orphan` flag.
+
+Lastly, `--broken-links` will return notes that have outgoing links, but where
+at least one of those links is broken (e.g., due to an incorrect filepath or
+pointing to a deleted file).
 
 ## Find related notes
 
@@ -361,8 +377,8 @@ especially useful with `zk edit` to avoid opening many unwanted notes with your
 editor.
 
 Use `--interactive` (or `-i`) to select filtered notes manually. The interactive
-selection is handled by [`fzf`](../config/tool-fzf.md) which brings a powerful fuzzy
-matching search into the mix.
+selection is handled by [`fzf`](../config/tool-fzf.md) which brings a powerful
+fuzzy matching search into the mix.
 
 ## Sort the results
 

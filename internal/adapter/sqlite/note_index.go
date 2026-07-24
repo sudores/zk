@@ -1,16 +1,16 @@
 package sqlite
 
 import (
-	"path/filepath"
-	"regexp"
-	"strings"
-
 	"fmt"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/zk-org/zk/internal/core"
 	"github.com/zk-org/zk/internal/util"
 	"github.com/zk-org/zk/internal/util/paths"
 	strutil "github.com/zk-org/zk/internal/util/strings"
+	"golang.org/x/sync/errgroup"
 )
 
 // NoteIndex persists note indexing results in the SQLite database.
@@ -107,7 +107,7 @@ func (ni *NoteIndex) IndexedPaths() (metadata <-chan paths.Metadata, err error) 
 }
 
 // Add implements core.NoteIndex.
-func (ni *NoteIndex) Add(note core.Note) (id core.NoteID, err error) {
+func (ni *NoteIndex) Add(note core.Note, fixLinks bool) (id core.NoteID, err error) {
 	err = ni.commit(func(dao *dao) error {
 		id, err = dao.notes.Add(note)
 		if err != nil {
@@ -120,9 +120,11 @@ func (ni *NoteIndex) Add(note core.Note) (id core.NoteID, err error) {
 			return err
 		}
 
-		err = ni.fixExistingLinks(dao, note.ID, note.Path)
-		if err != nil {
-			return err
+		if fixLinks {
+			err = ni.fixExistingLinks(dao, note.ID, note.Path)
+			if err != nil {
+				return err
+			}
 		}
 
 		return ni.associateTags(dao.collections, id, note.Tags)
@@ -134,32 +136,65 @@ func (ni *NoteIndex) Add(note core.Note) (id core.NoteID, err error) {
 	return
 }
 
-// fixExistingLinks will go over all indexed links and update their target to
-// the given id if they match the given path better than their current
-// targetPath.
 func (ni *NoteIndex) fixExistingLinks(dao *dao, id core.NoteID, path string) error {
+	return ni.batchFixExistingLinks(dao, []core.NoteID{id}, []string{path})
+}
+
+// BatchUpdateLinks will go over all indexed links and update their target to
+// one of the given ids if its path better matches their current targetPath.
+func (ni *NoteIndex) BatchUpdateLinks(ids []core.NoteID, paths []string) error {
+	return ni.commit(func(dao *dao) error {
+		return ni.batchFixExistingLinks(dao, ids, paths)
+	})
+}
+
+func (ni *NoteIndex) batchFixExistingLinks(dao *dao, ids []core.NoteID, paths []string) error {
 	links, err := dao.links.FindInternal()
-	if err != nil {
+	if err != nil || len(links) == 0 {
 		return err
 	}
 
-	for _, link := range links {
-		// To find the best match possible, shortest paths take precedence.
-		// See https://github.com/zk-org/zk/issues/23
-		if link.TargetPath != "" && len(link.TargetPath) < len(path) {
-			continue
+	fixLink := func(link core.ResolvedLink) error {
+		bestTargetPath := link.TargetPath
+		bestMatch := -1
+		for i, path := range paths {
+			// To find the best match possible, shortest paths take precedence.
+			// See https://github.com/zk-org/zk/issues/23
+			if bestTargetPath != "" && len(bestTargetPath) < len(path) {
+				continue
+			}
+
+			matches, err := ni.linkMatchesPath(link, path)
+			if err != nil {
+				return err
+			}
+			if matches {
+				bestTargetPath = path
+				bestMatch = i
+			}
 		}
 
-		matches, err := ni.linkMatchesPath(link, path)
-		if matches && err == nil {
-			err = dao.links.SetTargetID(link.ID, id)
+		if bestMatch != -1 {
+			err = dao.links.SetTargetID(link.ID, ids[bestMatch])
+			if err != nil {
+				return err
+			}
 		}
-		if err != nil {
-			return err
-		}
+
+		return nil
 	}
 
-	return nil
+	// Update the links in parallel: we must parse through the links of all notes,
+	// which is a considerable amount of work. We do so without using all CPU cores at once.
+	maxWorkers := min(max(runtime.GOMAXPROCS(0)-2, 1), len(links))
+	group := new(errgroup.Group)
+	group.SetLimit(maxWorkers)
+	for _, link := range links {
+		group.Go(func() error {
+			return fixLink(link)
+		})
+	}
+	return group.Wait()
 }
 
 // linkMatchesPath returns whether the given link can be used to reach the
@@ -167,29 +202,37 @@ func (ni *NoteIndex) fixExistingLinks(dao *dao, id core.NoteID, path string) err
 func (ni *NoteIndex) linkMatchesPath(link core.ResolvedLink, path string) (bool, error) {
 	// Remove any anchor at the end of the HREF, since it's most likely
 	// matching a sub-section in the note.
-	href := strings.SplitN(link.Href, "#", 2)[0]
-
-	matchString := func(pattern string, s string) bool {
-		reg := regexp.MustCompile(pattern)
-		return reg.MatchString(s)
+	href := link.Href
+	if hashPos := strings.IndexByte(link.Href, '#'); hashPos != -1 {
+		href = link.Href[:hashPos]
 	}
 
 	matches := func(href string, allowPartialHref bool) bool {
 		if href == "" {
 			return false
 		}
-		href = regexp.QuoteMeta(href)
-
-		if allowPartialHref {
-			if matchString("^(.*/)?[^/]*"+href+"[^/]*$", path) {
-				return true
-			}
-			if matchString(".*"+href+".*", path) {
-				return true
-			}
+		pos := strings.Index(path, href)
+		if allowPartialHref && pos != -1 {
+			// Match if 'href' is anywhere in 'path'
+			return true
+		} else if pos != 0 {
+			// Otherwise 'path' must start with 'href'
+			return false
 		}
 
-		return matchString("^(?:"+href+"[^/]*|"+href+"/.+)$", path)
+		slashPos := strings.IndexByte(path[len(href):], '/')
+		if slashPos != -1 {
+			// 'href/abc', 'href/a/b/c', or 'href/' but not 'hrefAnd/something/after'
+			return slashPos == 0
+		}
+
+		// 'href' or 'hrefSomeSuffix'
+		return true
+	}
+
+	allowPartialMatch := link.Type == core.LinkTypeWikiLink
+	if matches(href, allowPartialMatch) {
+		return true, nil
 	}
 
 	baseDir := filepath.Join(ni.notebookPath, filepath.Dir(link.SourcePath))
@@ -199,8 +242,7 @@ func (ni *NoteIndex) linkMatchesPath(link core.ResolvedLink, path string) (bool,
 		}
 	}
 
-	allowPartialMatch := (link.Type == core.LinkTypeWikiLink)
-	return matches(href, allowPartialMatch), nil
+	return false, nil
 }
 
 // relNotebookHref makes the given href (which is relative to baseDir) relative

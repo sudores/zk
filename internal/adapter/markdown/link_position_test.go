@@ -132,3 +132,56 @@ func TestLinkPositionMultipleLinks(t *testing.T) {
 	assert.Equal(t, pos2.Start, 15)
 	assert.Equal(t, pos2.End, 26)
 }
+
+// TestLinkPositionMultipleLinksOnSeparateLines tests that links on separate
+// lines (e.g., in a list) each get their correct positions.
+func TestLinkPositionMultipleLinksOnSeparateLines(t *testing.T) {
+	source := []byte("# Test\n\n- [one](e3bo)\n- [two](5qpt)\n- [three](kwpn)\n")
+	md := goldmark.New()
+
+	reader := text.NewReader(source)
+	root := md.Parser().Parse(reader, parser.WithContext(parser.NewContext()))
+
+	positions := make(map[string]LinkPosition)
+
+	ast.Walk(root, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		if link, ok := n.(*ast.Link); ok {
+			pos := GetLinkPosition(link, source)
+			if pos != nil {
+				positions[string(link.Destination)] = *pos
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+
+	expected := []struct {
+		dest  string
+		start int
+		end   int
+	}{
+		{"e3bo", 10, 21},
+		{"5qpt", 24, 35},
+		{"kwpn", 38, 51},
+	}
+
+	if got, want := len(positions), len(expected); got != want {
+		t.Fatalf("expected %d links, got %d", want, got)
+	}
+
+	for _, e := range expected {
+		pos, ok := positions[e.dest]
+		if !ok {
+			t.Fatalf("missing link with destination %q", e.dest)
+		}
+		if got, want := pos.Start, e.start; got != want {
+			t.Errorf("link %q: expected start %d, got %d", e.dest, want, got)
+		}
+		if got, want := pos.End, e.end; got != want {
+			t.Errorf("link %q: expected end %d, got %d", e.dest, want, got)
+		}
+	}
+}
