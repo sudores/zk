@@ -77,6 +77,7 @@ func TestNewNoteFormatter(t *testing.T) {
 			Path:         "note1.md",
 			AbsPath:      "/notebook/note1.md",
 			Title:        "Note 1",
+			URI:          "zk://?v=/notebook&f=note1.md",
 			Link:         opt.NewString("[Note 1](note1)"),
 			Lead:         "Lead 1",
 			Body:         "Body 1",
@@ -98,6 +99,7 @@ func TestNewNoteFormatter(t *testing.T) {
 			Path:         "dir/note2.md",
 			AbsPath:      "/notebook/dir/note2.md",
 			Title:        "Note 2",
+			URI:          "zk://?v=/notebook&f=dir/note2.md",
 			Link:         opt.NewString("[Note 2](dir/note2)"),
 			Lead:         "Lead 2",
 			Body:         "Body 2",
@@ -132,8 +134,11 @@ func TestNoteFormatterMakesPathRelative(t *testing.T) {
 				FilenameStem: paths.FilenameStem(expected),
 				Path:         expected,
 				AbsPath:      expectedFull,
-				Link:         opt.NewString("[](" + paths.DropExt(expected) + ")"),
-				Snippets:     []string{},
+				// The URI stays relative to the notebook, not to the
+				// working directory.
+				URI:      NoteURI{NotebookPath: test.rootDir, Path: path}.String(),
+				Link:     opt.NewString("[](" + paths.DropExt(expected) + ")"),
+				Snippets: []string{},
 			},
 		})
 	}
@@ -165,6 +170,7 @@ func TestNoteFormatterStylesSnippetTerm(t *testing.T) {
 				FilenameStem: ".",
 				Path:         ".",
 				AbsPath:      "/notebook",
+				URI:          "zk://?v=/notebook",
 				Link:         opt.NewString("[]()"),
 				Snippets:     []string{expected},
 			},

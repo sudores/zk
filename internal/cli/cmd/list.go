@@ -13,7 +13,7 @@ import (
 // List displays notes matching a set of criteria.
 type List struct {
 	FormatFlags
-	Link bool `group:format help:"Print the URL of each note (shorthand for --format url)."`
+	Link bool `group:format help:"Print the zk:// URI of each note (shorthand for --format uri)."`
 	cli.Filtering
 }
 
@@ -22,7 +22,7 @@ func (cmd *List) Run(container *cli.Container) error {
 		if cmd.Format != "" {
 			return errors.New("--link and --format can't be used together")
 		}
-		cmd.Format = "url"
+		cmd.Format = "uri"
 	}
 
 	if err := cmd.FormatFlags.Prepare("[", "]\n", true); err != nil {
@@ -91,7 +91,7 @@ var defaultNoteFormats = map[string]string{
 	"jsonl": `{{json .}}`,
 	"path":  `{{path}}`,
 	"link":  `{{link}}`,
-	"url":   `{{url}}`,
+	"uri":   `{{uri}}`,
 
 	"oneline": `{{style "title" title}} {{style "path" path}} ({{format-date created "elapsed"}})`,
 
