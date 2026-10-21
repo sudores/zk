@@ -111,8 +111,10 @@ func NewServer(opts ServerOpts) *Server {
 			Commands: []string{
 				cmdIndex,
 				cmdNew,
+				cmdLink,
 				cmdList,
 				cmdTagList,
+				cmdURI,
 			},
 		}
 		capabilities.CompletionProvider = &protocol.CompletionOptions{
@@ -386,6 +388,13 @@ func NewServer(opts ServerOpts) *Server {
 				return nil, err
 			}
 			return executeCommandTagList(server.logger, nb, params.Arguments)
+
+		case cmdURI:
+			nb, err := openNotebook()
+			if err != nil {
+				return nil, err
+			}
+			return executeCommandURI(nb, server.documents, params.Arguments)
 
 		default:
 			return nil, fmt.Errorf("unknown zk LSP command: %s", params.Command)

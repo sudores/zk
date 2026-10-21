@@ -3,8 +3,6 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
-	"path/filepath"
 	"regexp"
 	"time"
 )
@@ -34,19 +32,15 @@ func newNoteFormatter(basePath string, template Template, linkFormatter LinkForm
 			snippets = append(snippets, noteTermRegex.ReplaceAllString(snippet, termRepl))
 		}
 
-		zkU := &url.URL{
-			Scheme: "zk",
-			Host:   filepath.Base(basePath),
-			Path:   "/" + note.FilenameStem(),
-		}
-
 		return template.Render(noteFormatRenderContext{
 			Filename:     note.Filename(),
 			FilenameStem: note.FilenameStem(),
 			Path:         relPath,
 			AbsPath:      path.AbsPath(),
 			Title:        note.Title,
-			URL:          zkU.String(),
+			// note.Path, not relPath, which is relative to the working
+			// directory and would make the URI depend on where zk was run.
+			URI: NoteURI{NotebookPath: basePath, Path: note.Path}.String(),
 			Link: newLazyStringer(func() string {
 				context, err := NewLinkFormatterContext(path, note.Title, note.Metadata)
 				if err != nil {
@@ -80,7 +74,7 @@ type noteFormatRenderContext struct {
 	Path         string            `json:"path"`
 	AbsPath      string            `json:"absPath" handlebars:"abs-path"`
 	Title        string            `json:"title"`
-	URL          string            `json:"url" handlebars:"url"`
+	URI          string            `json:"uri" handlebars:"uri"`
 	Link         fmt.Stringer      `json:"link"`
 	Lead         string            `json:"lead"`
 	Body         string            `json:"body"`

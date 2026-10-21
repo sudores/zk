@@ -9,12 +9,23 @@ Format: `<description> (by <contributor>, <pr number>)`
 
 ### Added
 
+- New `zk://` URI scheme to link to a precise location in a notebook from
+  outside systems. `zk uri <path> --line --column` prints a link,
+  `zk list --link` (or `--format uri` / `{{uri}}`) prints them in bulk, the
+  `zk.uri` LSP command returns one for the cursor position, and
+  `zk open <uri>` opens the referenced file in your editor at the right line
+  and column
 - Parse links to notes in frontmatter (by @tjex, 710)
 - Set a note's modification time in frontmatter and allow for custom key naming
   for both creation and modification keys (by @BennoLossin and @tjex, 531)
 
 ### Fixed
 
+- The `zk.link` LSP command is now advertised in the server capabilities, so
+  that strict clients will call it
+- The editor's standard input is no longer redirected to `/dev/tty` when there
+  is no terminal attached, which prevented the editor from starting when `zk`
+  was launched from a desktop handler
 - Indexing made significantly more performant (by @Keluaa, 735)
 - Support filtering by date and time with `"<date> <time>"` instead of
   `<date>T<time>` only (by @tjex, 743)
