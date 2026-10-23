@@ -817,7 +817,7 @@ func noteCompletionFindOpts(notebook *core.Notebook) (core.NoteFindOpts, error) 
 		return core.NoteFindOpts{}, nil
 	}
 
-	filtering, err := cli.ParseFilter(*filter.Value)
+	filtering, err := cli.ParseFilterString(*filter.Value)
 	if err != nil {
 		return core.NoteFindOpts{}, fmt.Errorf("failed to parse lsp.completion.note-filter: %w", err)
 	}
