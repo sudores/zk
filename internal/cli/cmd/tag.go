@@ -4,28 +4,72 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/zk-org/zk/internal/cli"
+	"github.com/zk-org/zk/internal/cli/spec"
 	"github.com/zk-org/zk/internal/core"
 	"github.com/zk-org/zk/internal/util/strings"
 )
 
-// Tag manages the note tags in the notebook.
-type Tag struct {
-	List TagList `cmd group:"cmd" default:"withargs" help:"List all the note tags."`
-}
-
 // TagList lists all the note tags.
 type TagList struct {
-	Format     string   `group:format short:f placeholder:TEMPLATE   help:"Pretty print the list using a custom template or one of the predefined formats: name, full, json, jsonl."`
-	Header     string   `group:format                                help:"Arbitrary text printed at the start of the list."`
-	Footer     string   `group:format default:\n                     help:"Arbitrary text printed at the end of the list."`
-	Delimiter  string   "group:format short:d default:\n             help:\"Print tags delimited by the given separator.\""
-	Delimiter0 bool     "group:format short:0 name:delimiter0        help:\"Print tags delimited by ASCII NUL characters. This is useful when used in conjunction with `xargs -0`.\""
-	NoPager    bool     `group:format short:P help:"Do not pipe output into a pager."`
-	Quiet      bool     `group:format short:q help:"Do not print the total number of tags found."`
-	Sort       []string `group:sort short:s placeholder:TERM help:"Order the tags by the given criterion."`
+	Format     string
+	Header     string
+	Footer     string
+	Delimiter  string
+	Delimiter0 bool
+	NoPager    bool
+	Quiet      bool
+	Sort       []string
+}
+
+// TagSpec describes the `zk tag` command and its subcommands.
+func TagSpec(container *cli.Container) *spec.Command {
+	return &spec.Command{
+		Name:  "tag",
+		Short: "Manage the note tags.",
+		Group: GroupNotes,
+		Children: []*spec.Command{
+			tagListSpec(container),
+		},
+		DefaultChild: "list",
+	}
+}
+
+func tagListSpec(container *cli.Container) *spec.Command {
+	cmd := TagList{}
+
+	return &spec.Command{
+		Name:  "list",
+		Short: "List all the note tags.",
+		Flags: []spec.Flag{
+			{Name: "format", Short: "f", Group: spec.GroupFormat, Placeholder: "TEMPLATE", Target: &cmd.Format,
+				Help:     "Pretty print the list using a custom template or one of the predefined formats: name, full, json, jsonl.",
+				Complete: spec.Values("name", "full", "json", "jsonl")},
+			{Name: "header", Group: spec.GroupFormat, Target: &cmd.Header,
+				Help: "Arbitrary text printed at the start of the list."},
+			// The default of --footer is the two characters `\n`, which
+			// ExpandWhitespaceLiterals turns into a newline, while --delimiter
+			// defaults to a real one. Both end up as a newline, but the help
+			// shows them differently, as it always has. Making them consistent
+			// would change the documented output of `zk tag list --help`.
+			{Name: "footer", Group: spec.GroupFormat, Default: `\n`, Target: &cmd.Footer,
+				Help: "Arbitrary text printed at the end of the list."},
+			{Name: "delimiter", Short: "d", Group: spec.GroupFormat, Default: "\n", Target: &cmd.Delimiter,
+				Help: "Print tags delimited by the given separator."},
+			{Name: "delimiter0", Short: "0", Group: spec.GroupFormat, Target: &cmd.Delimiter0,
+				Help: "Print tags delimited by ASCII NUL characters. This is useful when used in conjunction with `xargs -0`."},
+			{Name: "no-pager", Short: "P", Group: spec.GroupFormat, Target: &cmd.NoPager,
+				Help: "Do not pipe output into a pager."},
+			{Name: "quiet", Short: "q", Group: spec.GroupFormat, Target: &cmd.Quiet,
+				Help: "Do not print the total number of tags found."},
+
+			{Name: "sort", Short: "s", Group: spec.GroupSort, Placeholder: "TERM", Target: &cmd.Sort,
+				Help:     "Order the tags by the given criterion.",
+				Complete: completeTagSortTerms()},
+		},
+		Run: func() error { return cmd.Run(container) },
+	}
 }
 
 func (cmd *TagList) Run(container *cli.Container) error {
@@ -120,7 +164,7 @@ func (cmd *TagList) Run(container *cli.Container) error {
 	}
 
 	if err == nil && !cmd.Quiet {
-		fmt.Fprintf(os.Stderr, "\nFound %d %s\n", count, strings.Pluralize("tag", count))
+		fmt.Fprintf(container.Stderr, "\nFound %d %s\n", count, strings.Pluralize("tag", count))
 	}
 
 	return err

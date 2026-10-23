@@ -4,24 +4,65 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/zk-org/zk/internal/adapter/fzf"
 	"github.com/zk-org/zk/internal/cli"
+	"github.com/zk-org/zk/internal/cli/spec"
 	"github.com/zk-org/zk/internal/util/strings"
 )
 
 // List displays notes matching a set of criteria.
 type List struct {
-	Format     string `group:format short:f placeholder:TEMPLATE   help:"Pretty print the list using a custom template or one of the predefined formats: oneline, short, medium, long, full, json, jsonl, uri."`
-	Link       bool   `group:format                                help:"Print the zk:// URI of each note (shorthand for --format uri)."`
-	Header     string `group:format                                help:"Arbitrary text printed at the start of the list."`
-	Footer     string `group:format default:\n                     help:"Arbitrary text printed at the end of the list."`
-	Delimiter  string "group:format short:d default:\n             help:\"Print notes delimited by the given separator.\""
-	Delimiter0 bool   "group:format short:0 name:delimiter0        help:\"Print notes delimited by ASCII NUL characters. This is useful when used in conjunction with `xargs -0`.\""
-	NoPager    bool   `group:format short:P help:"Do not pipe output into a pager."`
-	Quiet      bool   `group:format short:q help:"Do not print the total number of notes found."`
+	Format     string
+	Link       bool
+	Header     string
+	Footer     string
+	Delimiter  string
+	Delimiter0 bool
+	NoPager    bool
+	Quiet      bool
 	cli.Filtering
+}
+
+// ListSpec describes the `zk list` command.
+func ListSpec(container *cli.Container) *spec.Command {
+	cmd := List{}
+	arg := cmd.PathArg()
+	arg.Complete = completeNotePaths(container)
+
+	flags := []spec.Flag{
+		{Name: "format", Short: "f", Group: spec.GroupFormat, Placeholder: "TEMPLATE", Target: &cmd.Format,
+			Help:     "Pretty print the list using a custom template or one of the predefined formats: oneline, short, medium, long, full, json, jsonl, uri.",
+			Complete: spec.Values("oneline", "short", "medium", "long", "full", "json", "jsonl", "uri", "path", "link")},
+		{Name: "link", Group: spec.GroupFormat, Target: &cmd.Link,
+			Help: "Print the zk:// URI of each note (shorthand for --format uri)."},
+		{Name: "header", Group: spec.GroupFormat, Target: &cmd.Header,
+			Help: "Arbitrary text printed at the start of the list."},
+		// The default of --footer is the two characters `\n`, which
+		// ExpandWhitespaceLiterals turns into a newline, while --delimiter
+		// defaults to a real one. Both end up as a newline, but the help
+		// shows them differently, as it always has. Making them consistent
+		// would change the documented output of `zk list --help`.
+		{Name: "footer", Group: spec.GroupFormat, Default: `\n`, Target: &cmd.Footer,
+			Help: "Arbitrary text printed at the end of the list."},
+		{Name: "delimiter", Short: "d", Group: spec.GroupFormat, Default: "\n", Target: &cmd.Delimiter,
+			Help: "Print notes delimited by the given separator."},
+		{Name: "delimiter0", Short: "0", Group: spec.GroupFormat, Target: &cmd.Delimiter0,
+			Help: "Print notes delimited by ASCII NUL characters. This is useful when used in conjunction with `xargs -0`."},
+		{Name: "no-pager", Short: "P", Group: spec.GroupFormat, Target: &cmd.NoPager,
+			Help: "Do not pipe output into a pager."},
+		{Name: "quiet", Short: "q", Group: spec.GroupFormat, Target: &cmd.Quiet,
+			Help: "Do not print the total number of notes found."},
+	}
+
+	return &spec.Command{
+		Name:  "list",
+		Short: "List notes matching the given criteria.",
+		Group: GroupNotes,
+		Args:  []spec.Arg{arg},
+		Flags: append(flags, filteringFlags(container, &cmd.Filtering)...),
+		Run:   func() error { return cmd.Run(container) },
+	}
 }
 
 func (cmd *List) Run(container *cli.Container) error {
@@ -137,7 +178,7 @@ func (cmd *List) Run(container *cli.Container) error {
 	}
 
 	if err == nil && !cmd.Quiet {
-		fmt.Fprintf(os.Stderr, "\nFound %d %s\n", count, strings.Pluralize("note", count))
+		fmt.Fprintf(container.Stderr, "\nFound %d %s\n", count, strings.Pluralize("note", count))
 	}
 
 	return err

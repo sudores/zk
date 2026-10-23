@@ -5,23 +5,56 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 
 	"github.com/zk-org/zk/internal/cli"
+	"github.com/zk-org/zk/internal/cli/spec"
 	"github.com/zk-org/zk/internal/util/strings"
 )
 
-// AliasList lists all the aliases.
+// Config lists the configuration objects of a notebook.
 type Config struct {
-	List       string `short:"l" placeholder:"OBJECT" help:"List configuration objects. Listable objects are: aliases, filters and extras."`
-	Format     string `group:"format" short:"f" placeholder:"TEMPLATE" help:"Pretty print the list using a custom template or predefined formats: short, full, json."`
-	Header     string `group:"format" help:"Arbitrary text printed at the start of the list."`
-	Footer     string `group:"format" default:"\n" help:"Arbitrary text printed at the end of the list."`
-	Delimiter  string `group:"format" short:"d" default:"\n" help:"Print tags delimited by the given separator."`
-	Delimiter0 bool   `group:"format" short:"0" name:"delimiter0" help:"Print tags delimited by ASCII NUL characters. Useful with xargs -0."`
-	NoPager    bool   `group:"format" short:"P" help:"Do not pipe output into a pager."`
-	Quiet      bool   `group:"format" short:"q" help:"Do not print the total number of tags found."`
+	List       string
+	Format     string
+	Header     string
+	Footer     string
+	Delimiter  string
+	Delimiter0 bool
+	NoPager    bool
+	Quiet      bool
+}
+
+// ConfigSpec describes the `zk config` command.
+func ConfigSpec(container *cli.Container) *spec.Command {
+	cmd := Config{}
+
+	return &spec.Command{
+		Name:  "config",
+		Short: "List configuration parameters.",
+		Group: GroupNotebook,
+		Flags: []spec.Flag{
+			{Name: "list", Short: "l", Placeholder: "OBJECT", Target: &cmd.List,
+				Help:     "List configuration objects. Listable objects are: aliases, filters and extras.",
+				Complete: spec.Values("aliases", "filters", "extras")},
+
+			{Name: "format", Short: "f", Group: spec.GroupFormat, Placeholder: "TEMPLATE", Target: &cmd.Format,
+				Help:     "Pretty print the list using a custom template or predefined formats: short, full, json.",
+				Complete: spec.Values("short", "full", "json")},
+			{Name: "header", Group: spec.GroupFormat, Target: &cmd.Header,
+				Help: "Arbitrary text printed at the start of the list."},
+			{Name: "footer", Group: spec.GroupFormat, Default: `\n`, Target: &cmd.Footer,
+				Help: "Arbitrary text printed at the end of the list."},
+			{Name: "delimiter", Short: "d", Group: spec.GroupFormat, Default: `\n`, Target: &cmd.Delimiter,
+				Help: "Print tags delimited by the given separator."},
+			{Name: "delimiter0", Short: "0", Group: spec.GroupFormat, Target: &cmd.Delimiter0,
+				Help: "Print tags delimited by ASCII NUL characters. Useful with xargs -0."},
+			{Name: "no-pager", Short: "P", Group: spec.GroupFormat, Target: &cmd.NoPager,
+				Help: "Do not pipe output into a pager."},
+			{Name: "quiet", Short: "q", Group: spec.GroupFormat, Target: &cmd.Quiet,
+				Help: "Do not print the total number of tags found."},
+		},
+		Run: func() error { return cmd.Run(container) },
+	}
 }
 
 func (cmd *Config) Run(container *cli.Container) error {
@@ -72,8 +105,7 @@ func (cmd *Config) Run(container *cli.Container) error {
 	case "extras":
 		objects = container.Config.Extra
 	default:
-		fmt.Print("Listable config objects are: filters, aliases and extras.\n")
-		os.Exit(1)
+		return errors.New("listable config objects are: filters, aliases and extras")
 	}
 
 	count := len(objects)
@@ -101,8 +133,7 @@ func (cmd *Config) Run(container *cli.Container) error {
 			} else if cmd.Format == "json" {
 				jsonData, err := json.Marshal(objects[o])
 				if err != nil {
-					fmt.Println("Error marshaling JSON:", err)
-					os.Exit(1)
+					return err
 				}
 				fmt.Fprintf(out, format, o, jsonData)
 			} else {
@@ -118,7 +149,7 @@ func (cmd *Config) Run(container *cli.Container) error {
 	})
 
 	if err == nil && !cmd.Quiet {
-		fmt.Fprintf(os.Stderr, "\nFound %d %s\n", count, cmd.List)
+		fmt.Fprintf(container.Stderr, "\nFound %d %s\n", count, cmd.List)
 	}
 	return err
 }

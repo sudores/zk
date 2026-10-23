@@ -9,6 +9,13 @@ Format: `<description> (by <contributor>, <pr number>)`
 
 ### Added
 
+- Shell completion. `zk completion bash|zsh|fish|powershell` prints a script
+  which completes `zk`'s commands and flags, and, inside a notebook, its notes,
+  its tags and the groups declared in its configuration. See
+  [the documentation](https://zk-org.github.io/zk/tips/shell-completion.html)
+  for where your shell expects it
+- `--created` is documented in the help of `zk list`, `zk edit` and `zk graph`,
+  which a typo in its declaration used to hide
 - New `zk://` URI scheme to link to a precise location in a notebook from
   outside systems. `zk uri <path> --line --column` prints a link,
   `zk list --link` (or `--format uri` / `{{uri}}`) prints them in bulk, the
@@ -18,6 +25,16 @@ Format: `<description> (by <contributor>, <pr number>)`
 - Parse links to notes in frontmatter (by @tjex, 710)
 - Set a note's modification time in frontmatter and allow for custom key naming
   for both creation and modification keys (by @BennoLossin and @tjex, 531)
+
+### Changed
+
+- The commands are now described in one place, `internal/cli/cmd`, and read by
+  an interchangeable front-end which presents them. `zk` is built with the
+  Cobra one, which is what makes shell completion possible; the Kong one it
+  used before is still available with `make build-kong`. The commands, their
+  flags and their output are unchanged — see `CONTRIBUTING.md`
+- `zk config --list` with an unknown object now reports it as an error on
+  stderr, like every other command, rather than printing to stdout
 
 ### Fixed
 
