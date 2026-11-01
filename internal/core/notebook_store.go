@@ -345,6 +345,45 @@ dead-link = "error"
 #note-detail = "\{{filename-stem}}"
 
 
+# SYNCHRONIZATION
+#
+#   ` + "`" + `zk sync` + "`" + ` brings in the changes made elsewhere and sends out your own.
+#
+#   The default is Git, and it needs nothing here: make the notebook a
+#   repository with ` + "`" + `git init` + "`" + ` and ` + "`" + `git remote add` + "`" + `, and that is all.
+#
+#   The ` + "`" + `s3` + "`" + ` backend reconciles the notebook with a bucket instead. S3 has no
+#   merge, so zk keeps its own record of what each note looked like at the last
+#   synchronization, in ` + "`" + `.zk/sync-state.json` + "`" + `. That is what lets it tell a note
+#   you changed from one changed on another machine, propagate deletions, and
+#   keep both versions side by side when a note really was edited in two
+#   places.
+#
+#   No credentials belong here. They come from the AWS credential chain - the
+#   environment, ` + "`" + `~/.aws/credentials` + "`" + `, a profile, SSO - because this file is
+#   itself synchronized.
+#
+#[sync]
+#backend = "s3"
+# Keep files out of the synchronization, in the same syntax as ` + "`" + `note.exclude` + "`" + `.
+#exclude = ["attachments/**"]
+#
+#[sync.s3]
+#bucket = "my-notes"
+# A prefix lets one bucket hold several notebooks.
+#prefix = "notebook"
+#region = "eu-central-1"
+# Prefer the AWS_PROFILE environment variable, which belongs to one machine as
+# this setting does not.
+#profile = "personal"
+# For MinIO, Cloudflare R2, Backblaze B2 and other S3-compatible services.
+#endpoint-url = "http://localhost:9000"
+#path-style = true
+# Stop and ask for --force when a synchronization would delete more files than
+# this. 0 removes the limit.
+#max-deletes = 10
+
+
 # NAMED FILTERS
 #
 #    A named filter is a set of note filtering options used frequently together.
@@ -365,6 +404,10 @@ dead-link = "error"
 #   man page to see the available syntax. In most shells:
 #     * $@ can be used to expand all the provided flags and arguments
 #     * you can pipe commands together with the usual | character
+#
+#   An alias can also be declared as a table, to give it a description. Your
+#   aliases are listed in ` + "`" + `zk --help` + "`" + ` and suggested by your shell, where the
+#   description says what each one is for. See the end of this section.
 #
 [alias]
 # Here are a few aliases to get you started.
@@ -397,6 +440,12 @@ dead-link = "error"
 
 # Edit this configuration file.
 #conf = '$EDITOR "$ZK_NOTEBOOK_DIR/.zk/config.toml"'
+
+# The table form, which is the one taking a description. ` + "`" + `alias` + "`" + ` is the
+# command to run, and ` + "`" + `description` + "`" + ` is optional.
+#[alias.journal]
+#alias = 'zk new "$ZK_NOTEBOOK_DIR/journal"'
+#description = "Create a new journal entry"
 `
 
 const defaultTemplate = `# {{title}}

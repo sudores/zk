@@ -22,6 +22,14 @@ Format: `<description> (by @<contributor>, #<pr number>)`
   `zk.uri` LSP command returns one for the cursor position, and
   `zk open <uri>` opens the referenced file in your editor at the right line
   and column
+- `zk sync` can keep a notebook in step with an S3 bucket as well as with a Git
+  remote. Set `backend = "s3"` and a `bucket` under `[sync]` in the notebook's
+  configuration; credentials come from the usual AWS credential chain, and
+  `endpoint-url` points at MinIO, Cloudflare R2, Backblaze B2 and the like.
+  Because an object store has no merge, `zk` keeps its own record of what each
+  note looked like at the last synchronization, which is what lets it
+  propagate deletions and keep both versions of a note edited in two places.
+  See [the documentation](https://zk-org.github.io/zk/tips/s3-sync.html)
 
 ### Changed
 

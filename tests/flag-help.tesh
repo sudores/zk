@@ -11,6 +11,7 @@ $ zk --help
 >  init      Create a new notebook in the given directory.
 >  index     Index the notes to be searchable.
 >  config    List configuration parameters.
+>  sync      Synchronize the notebook with its remote.
 >
 >NOTES
 >  Edit or browse your notes

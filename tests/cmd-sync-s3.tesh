@@ -1,0 +1,51 @@
+$ cd blank
+
+# This test covers only what needs no bucket and no credentials: the
+# configuration errors, and the flag which does not apply. Reaching a real
+# object store is the job of the Go tests in internal/adapter/s3, which run the
+# whole synchronization against an in-memory one, and of a manual run against
+# MinIO or S3 itself.
+
+# The backend has to be one zk knows. An unknown one is a configuration error,
+# so it stops every command and not only `zk sync`.
+$ echo -e "[sync]\nbackend = \"dropbox\"" > .zk/config.toml
+
+1$ zk sync
+2>zk: error: failed to open notebook config: dropbox: unknown sync backend - may be git or s3
+
+1$ zk list
+2>zk: error: failed to open notebook config: dropbox: unknown sync backend - may be git or s3
+
+# Synchronizing with S3 needs a bucket, which is reported before anything is
+# sent anywhere.
+$ echo -e "[sync]\nbackend = \"s3\"" > .zk/config.toml
+
+1$ zk sync
+2>zk: error: no S3 bucket to synchronize with: set `bucket` under `[sync.s3]` in the notebook's configuration
+
+# An empty bucket name is no bucket at all.
+$ echo -e "[sync]\nbackend = \"s3\"\n[sync.s3]\nbucket = \"\"" > .zk/config.toml
+
+1$ zk sync
+2>zk: error: no S3 bucket to synchronize with: set `bucket` under `[sync.s3]` in the notebook's configuration
+
+# `--message` is the Git backend's commit message and means nothing to S3, so
+# it is ignored rather than obeyed in silence. It is said before the
+# configuration is checked, which is why it shows up alongside the error above.
+$ echo -e "[sync]\nbackend = \"s3\"" > .zk/config.toml
+
+1$ zk sync --message "Add a note"
+2>Ignoring --message: it is the `git` backend's commit message, and this notebook synchronizes with S3.
+2>zk: error: no S3 bucket to synchronize with: set `bucket` under `[sync.s3]` in the notebook's configuration
+
+# --quiet silences the warning, but not the error.
+1$ zk sync --message "Add a note" --quiet
+2>zk: error: no S3 bucket to synchronize with: set `bucket` under `[sync.s3]` in the notebook's configuration
+
+# Saying nothing about the backend keeps the Git one, so a notebook which
+# predates the setting behaves exactly as it did.
+$ echo -e "[sync.s3]\nbucket = \"my-notes\"" > .zk/config.toml
+
+1$ zk sync
+2>zk: error: {{working-dir}} is not a Git repository: run `git init` and `git remote add` in it to synchronize it
+

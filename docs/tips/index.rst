@@ -9,6 +9,8 @@ Tips
    automation
    daily-journal
    notebook-housekeeping
+   git-sync
+   s3-sync
    external-processing
    external-call
    editors-integration

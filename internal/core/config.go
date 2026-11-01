@@ -1,9 +1,11 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -20,9 +22,63 @@ type Config struct {
 	Format   FormatConfig
 	Tool     ToolConfig
 	LSP      LSPConfig
+	Sync     SyncConfig
 	Filters  map[string]string
-	Aliases  map[string]string
+	Aliases  map[string]Alias
 	Extra    map[string]string
+}
+
+// Alias is a user command, as declared in the `[alias]` section of the
+// configuration.
+type Alias struct {
+	// Command is the shell command the alias runs.
+	Command string
+	// Description says what the alias does, for the help and the shell
+	// completions. It is optional.
+	Description string
+}
+
+// SyncConfig holds the `[sync]` section, which says how `zk sync`
+// synchronizes the notebook.
+type SyncConfig struct {
+	// Backend is the mechanism synchronization goes through.
+	Backend SyncBackendName
+	// Exclude lists globs which are kept out of the synchronization, in the
+	// same syntax as `note.exclude`. It sits here rather than under S3
+	// because it is not S3's business.
+	Exclude []string
+	// S3 configures the `s3` backend.
+	S3 S3Config
+}
+
+// S3Config holds the `[sync.s3]` section.
+//
+// It deliberately has no credential settings. They come from the AWS
+// credential chain — the environment, `~/.aws/credentials`, a profile, SSO, an
+// instance role — so that nothing secret is written to a file which is itself
+// synchronized.
+type S3Config struct {
+	// Bucket is the name of the bucket, and is required by the backend.
+	Bucket opt.String
+	// Prefix is the key prefix the notebook lives under, so that one bucket
+	// can hold several notebooks. It is optional.
+	Prefix opt.String
+	// Region is the bucket's region, when the environment does not say.
+	Region opt.String
+	// Profile names an AWS profile. Prefer the standard AWS_PROFILE
+	// environment variable, which is machine-specific as this setting is not:
+	// the notebook's configuration is itself synchronized.
+	Profile opt.String
+	// EndpointURL points at an S3-compatible service other than AWS, such as
+	// MinIO, Cloudflare R2 or Backblaze B2.
+	EndpointURL opt.String
+	// PathStyle addresses the bucket as a path rather than a subdomain, which
+	// MinIO and some other services need.
+	PathStyle bool
+	// MaxDeletes is the number of deletions beyond which a synchronization
+	// stops and asks to be confirmed with --force, so that a stale state
+	// cannot quietly empty a notebook. Zero means no limit.
+	MaxDeletes int
 }
 
 // NOTE: config generation occurs in internal/core/notebook_store.go. The below function is used
@@ -77,8 +133,20 @@ func NewDefaultConfig() Config {
 				MissingBacklink: MissingBacklinkConfig{}, // Disabled by default (Level = LSPDiagnosticNone)
 			},
 		},
+		Sync: SyncConfig{
+			Backend: SyncBackendGit,
+			Exclude: []string{},
+			S3: S3Config{
+				Bucket:      opt.NullString,
+				Prefix:      opt.NullString,
+				Region:      opt.NullString,
+				Profile:     opt.NullString,
+				EndpointURL: opt.NullString,
+				MaxDeletes:  10,
+			},
+		},
 		Filters: map[string]string{},
-		Aliases: map[string]string{},
+		Aliases: map[string]Alias{},
 		Extra:   map[string]string{},
 	}
 }
@@ -511,6 +579,40 @@ func ParseConfig(content []byte, path string, parentConfig Config, isGlobal bool
 		}
 	}
 
+	// Sync
+	sync := tomlConf.Sync
+	if sync.Backend != nil {
+		backend, err := syncBackendFromString(*sync.Backend)
+		if err != nil {
+			return config, err
+		}
+		config.Sync.Backend = backend
+	}
+	if sync.Exclude != nil {
+		config.Sync.Exclude = sync.Exclude
+	}
+	if sync.S3.Bucket != nil {
+		config.Sync.S3.Bucket = opt.NewNotEmptyString(*sync.S3.Bucket)
+	}
+	if sync.S3.Prefix != nil {
+		config.Sync.S3.Prefix = opt.NewNotEmptyString(*sync.S3.Prefix)
+	}
+	if sync.S3.Region != nil {
+		config.Sync.S3.Region = opt.NewNotEmptyString(*sync.S3.Region)
+	}
+	if sync.S3.Profile != nil {
+		config.Sync.S3.Profile = opt.NewNotEmptyString(*sync.S3.Profile)
+	}
+	if sync.S3.EndpointURL != nil {
+		config.Sync.S3.EndpointURL = opt.NewNotEmptyString(*sync.S3.EndpointURL)
+	}
+	if sync.S3.PathStyle != nil {
+		config.Sync.S3.PathStyle = *sync.S3.PathStyle
+	}
+	if sync.S3.MaxDeletes != nil {
+		config.Sync.S3.MaxDeletes = *sync.S3.MaxDeletes
+	}
+
 	// Filters
 	if tomlConf.Filters != nil {
 		maps.Copy(config.Filters, tomlConf.Filters)
@@ -518,10 +620,88 @@ func ParseConfig(content []byte, path string, parentConfig Config, isGlobal bool
 
 	// Aliases
 	if tomlConf.Aliases != nil {
-		maps.Copy(config.Aliases, tomlConf.Aliases)
+		aliases, err := parseAliases(tomlConf.Aliases)
+		if err != nil {
+			return config, err
+		}
+		maps.Copy(config.Aliases, aliases)
 	}
 
 	return config, nil
+}
+
+// parseAliases reads the `[alias]` section, which accepts an alias in two
+// forms: the shell command on its own, or a table also carrying a
+// description.
+//
+//	[alias]
+//	ls = "zk list $@"
+//
+//	[alias.log]
+//	alias = "zk list --quiet --format path --delimiter0 $@ | xargs -0 git log --patch --"
+//	description = "Browse the Git history of the selected notes"
+func parseAliases(tomlAliases map[string]any) (map[string]Alias, error) {
+	// Sorted, so that a configuration with several faulty aliases always
+	// reports the same one.
+	names := make([]string, 0, len(tomlAliases))
+	for name := range tomlAliases {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	aliases := make(map[string]Alias, len(tomlAliases))
+	for _, name := range names {
+		alias, err := parseAlias(tomlAliases[name])
+		if err != nil {
+			return nil, fmt.Errorf("failed to read alias `%s`: %w", name, err)
+		}
+		aliases[name] = alias
+	}
+	return aliases, nil
+}
+
+func parseAlias(value any) (Alias, error) {
+	switch value := value.(type) {
+	case string:
+		return Alias{Command: value}, nil
+
+	case map[string]any:
+		var alias Alias
+		for _, property := range sortedKeys(value) {
+			switch property {
+			case "alias":
+				command, ok := value[property].(string)
+				if !ok {
+					return alias, errors.New("`alias` must be a string")
+				}
+				alias.Command = command
+			case "description":
+				description, ok := value[property].(string)
+				if !ok {
+					return alias, errors.New("`description` must be a string")
+				}
+				alias.Description = description
+			default:
+				return alias, fmt.Errorf("unknown property `%s`, expected `alias` or `description`", property)
+			}
+		}
+		if alias.Command == "" {
+			return alias, errors.New("missing the `alias` property with the command to run")
+		}
+		return alias, nil
+
+	default:
+		return Alias{}, fmt.Errorf("expected a command string or a table with an `alias` property, got %T", value)
+	}
+}
+
+func sortedKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (c GroupConfig) merge(tomlConf tomlGroupConfig, name string) GroupConfig {
@@ -577,9 +757,26 @@ type tomlConfig struct {
 	Format   tomlFormatConfig
 	Tool     tomlToolConfig
 	LSP      tomlLSPConfig
+	Sync     tomlSyncConfig
 	Extra    map[string]string
 	Filters  map[string]string `toml:"filter"`
-	Aliases  map[string]string `toml:"alias"`
+	Aliases  map[string]any    `toml:"alias"`
+}
+
+type tomlSyncConfig struct {
+	Backend *string
+	Exclude []string
+	S3      tomlS3Config `toml:"s3"`
+}
+
+type tomlS3Config struct {
+	Bucket      *string
+	Prefix      *string
+	Region      *string
+	Profile     *string
+	EndpointURL *string `toml:"endpoint-url"`
+	PathStyle   *bool   `toml:"path-style"`
+	MaxDeletes  *int    `toml:"max-deletes"`
 }
 
 type tomlNotebookConfig struct {

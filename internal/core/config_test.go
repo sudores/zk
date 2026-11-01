@@ -59,8 +59,13 @@ func TestParseDefaultConfig(t *testing.T) {
 				MissingBacklink: MissingBacklinkConfig{},
 			},
 		},
+		Sync: SyncConfig{
+			Backend: SyncBackendGit,
+			Exclude: []string{},
+			S3:      S3Config{MaxDeletes: 10},
+		},
 		Filters: make(map[string]string),
-		Aliases: make(map[string]string),
+		Aliases: make(map[string]Alias),
 		Extra:   make(map[string]string),
 	})
 }
@@ -276,13 +281,18 @@ func TestParseComplete(t *testing.T) {
 				MissingBacklink: MissingBacklinkConfig{},
 			},
 		},
+		Sync: SyncConfig{
+			Backend: SyncBackendGit,
+			Exclude: []string{},
+			S3:      S3Config{MaxDeletes: 10},
+		},
 		Filters: map[string]string{
 			"recents": "--created-after '2 weeks ago'",
 			"journal": "journal --sort created",
 		},
-		Aliases: map[string]string{
-			"ls": "zk list $@",
-			"ed": "zk edit $@",
+		Aliases: map[string]Alias{
+			"ls": {Command: "zk list $@"},
+			"ed": {Command: "zk edit $@"},
 		},
 		Extra: map[string]string{
 			"hello": "world",
@@ -457,8 +467,13 @@ func TestParseMergesGroupConfig(t *testing.T) {
 				MissingBacklink: MissingBacklinkConfig{},
 			},
 		},
+		Sync: SyncConfig{
+			Backend: SyncBackendGit,
+			Exclude: []string{},
+			S3:      S3Config{MaxDeletes: 10},
+		},
 		Filters: make(map[string]string),
-		Aliases: make(map[string]string),
+		Aliases: make(map[string]Alias),
 		Extra: map[string]string{
 			"hello": "world",
 			"salut": "le monde",
@@ -731,4 +746,126 @@ func TestGroupConfigClone(t *testing.T) {
 			"hello": "world",
 		},
 	})
+}
+
+func TestParseAliases(t *testing.T) {
+	// A plain string and a table declaring a description can be mixed in the
+	// same `[alias]` section.
+	conf, err := ParseConfig([]byte(`
+		[alias]
+		ls = "zk list $@"
+
+		[alias.log]
+		alias = "zk list --quiet --format path --delimiter0 $@ | xargs -0 git log --patch --"
+		description = "Browse the Git history of the selected notes"
+
+		[alias.lucky]
+		alias = "zk list --sort random --limit 1"
+	`), ".zk/config.toml", NewDefaultConfig(), false)
+
+	assert.Nil(t, err)
+	assert.Equal(t, conf.Aliases, map[string]Alias{
+		"ls": {Command: "zk list $@"},
+		"log": {
+			Command:     "zk list --quiet --format path --delimiter0 $@ | xargs -0 git log --patch --",
+			Description: "Browse the Git history of the selected notes",
+		},
+		"lucky": {Command: "zk list --sort random --limit 1"},
+	})
+}
+
+func TestParseInvalidAliases(t *testing.T) {
+	test := func(toml string, err string) {
+		_, parseErr := ParseConfig([]byte(toml), ".zk/config.toml", NewDefaultConfig(), false)
+		assert.Err(t, parseErr, err)
+	}
+
+	// The table form must say which command to run.
+	test("[alias.log]\ndescription = \"Browse the history\"",
+		"failed to read alias `log`: missing the `alias` property with the command to run")
+
+	// A misspelled property is reported rather than ignored.
+	test("[alias.log]\nalias = \"git log\"\ndescriptn = \"Browse the history\"",
+		"failed to read alias `log`: unknown property `descriptn`, expected `alias` or `description`")
+
+	test("[alias.log]\nalias = 42",
+		"failed to read alias `log`: `alias` must be a string")
+
+	test("[alias]\nlog = 42",
+		"failed to read alias `log`: expected a command string or a table with an `alias` property, got int64")
+}
+
+func TestParseSyncConfig(t *testing.T) {
+	conf, err := ParseConfig([]byte(`
+		[sync]
+		backend = "s3"
+		exclude = ["attachments/**", "*.tmp"]
+
+		[sync.s3]
+		bucket = "my-notes"
+		prefix = "notebook"
+		region = "eu-central-1"
+		profile = "personal"
+		endpoint-url = "http://localhost:9000"
+		path-style = true
+		max-deletes = 25
+	`), ".zk/config.toml", NewDefaultConfig(), false)
+
+	assert.Nil(t, err)
+	assert.Equal(t, conf.Sync, SyncConfig{
+		Backend: SyncBackendS3,
+		Exclude: []string{"attachments/**", "*.tmp"},
+		S3: S3Config{
+			Bucket:      opt.NewString("my-notes"),
+			Prefix:      opt.NewString("notebook"),
+			Region:      opt.NewString("eu-central-1"),
+			Profile:     opt.NewString("personal"),
+			EndpointURL: opt.NewString("http://localhost:9000"),
+			PathStyle:   true,
+			MaxDeletes:  25,
+		},
+	})
+}
+
+// The notebook's configuration inherits the global one, so a bucket can be
+// declared once and a profile kept out of the notebook which is synchronized.
+func TestParseSyncConfigInheritsFromParent(t *testing.T) {
+	parent, err := ParseConfig([]byte(`
+		[sync.s3]
+		profile = "personal"
+		max-deletes = 3
+	`), "../../config.toml", NewDefaultConfig(), true)
+	assert.Nil(t, err)
+
+	conf, err := ParseConfig([]byte(`
+		[sync]
+		backend = "s3"
+
+		[sync.s3]
+		bucket = "my-notes"
+	`), ".zk/config.toml", parent, false)
+	assert.Nil(t, err)
+
+	assert.Equal(t, conf.Sync.Backend, SyncBackendS3)
+	assert.Equal(t, conf.Sync.S3.Bucket, opt.NewString("my-notes"))
+	assert.Equal(t, conf.Sync.S3.Profile, opt.NewString("personal"))
+	assert.Equal(t, conf.Sync.S3.MaxDeletes, 3)
+}
+
+func TestParseInvalidSyncBackend(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+		[sync]
+		backend = "dropbox"
+	`), ".zk/config.toml", NewDefaultConfig(), false)
+
+	assert.Err(t, err, "dropbox: unknown sync backend - may be git or s3")
+}
+
+// Without a `[sync]` section at all, a notebook keeps synchronizing through
+// Git exactly as it did before the setting existed.
+func TestParseSyncConfigDefaultsToGit(t *testing.T) {
+	conf, err := ParseConfig([]byte(""), ".zk/config.toml", NewDefaultConfig(), false)
+
+	assert.Nil(t, err)
+	assert.Equal(t, conf.Sync.Backend, SyncBackendGit)
 }

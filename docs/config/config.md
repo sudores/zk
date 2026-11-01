@@ -15,6 +15,7 @@ Each [notebook](../notes/notebook.md) contains a configuration file used to cust
 * `[lsp]` setups the [Language Server Protocol settings](config-lsp.md) for [editors integration](../tips/editors-integration.md)
 * `[filter]` declares your [named filters](config-filter.md)
 * `[alias]` holds your [command aliases](config-alias.md)
+* `[sync]` chooses how [`zk sync`](config-sync.md) keeps the notebook in step with a Git remote or an S3 bucket
 
 ## Global configuration file
 
@@ -129,4 +130,19 @@ wiki-title = "hint"
 dead-link = "error"
 # Warn when notes link here without backlinks.
 missing-backlink = { level = "warning", position = "bottom" }
+
+# SYNCHRONIZATION
+[sync]
+# "git" (the default) or "s3".
+backend = "s3"
+# Keep files out of the synchronization, as note.exclude does.
+exclude = ["attachments/**"]
+
+[sync.s3]
+bucket = "my-notes"
+# A prefix lets one bucket hold several notebooks.
+prefix = "notebook"
+region = "eu-central-1"
+# Stop and ask for --force rather than delete more files than this.
+max-deletes = 10
 ```

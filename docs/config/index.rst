@@ -11,6 +11,7 @@ Configuration
    Groups <config-group>
    Aliases <config-alias>
    Filters <config-filter>
+   Synchronization <config-sync>
    LSP <config-lsp>
    Extra <config-extra>
    Tools <tools>

@@ -1,0 +1,82 @@
+$ cd blank
+
+# Synchronizing needs the notebook to be a Git repository.
+1$ zk sync
+2>zk: error: {{working-dir}} is not a Git repository: run `git init` and `git remote add` in it to synchronize it
+
+# Set one up. The identity and the signature settings are written to the
+# repository itself, so that the test does not depend on the user's own.
+$ git init -q -b main .
+
+$ git config user.name "zk"
+
+$ git config user.email "zk@example.com"
+
+$ git config commit.gpgsign false
+
+# A repository without a remote has nothing to synchronize with.
+1$ zk sync
+2>zk: error: the notebook's Git repository has no remote to synchronize with: add one with `git remote add origin <URL>`
+
+# A bare repository standing in for the remote, kept outside the notebook so
+# that it is not taken for one of its notes.
+$ git init -q --bare -b main ../remote.git
+
+$ git remote add origin ../remote.git
+
+# `--dry-run` prints the Git commands without running any of them.
+$ echo -e "# A note" > note.md
+
+$ zk sync --dry-run --message "Add a note"
+>git add --all -- . :(exclude).zk/notebook.db :(exclude).zk/notebook.db-wal :(exclude).zk/notebook.db-shm
+>git commit --message "Add a note"
+>git push --set-upstream origin HEAD
+2>Committing the changes...
+2>Nothing to pull: the current branch tracks no remote branch yet.
+2>Pushing to origin, and tracking it from now on...
+
+$ git status --short
+>?? .zk/
+>?? note.md
+
+# The first synchronization commits the notes and pushes them, setting the
+# branch to track the remote.
+$ zk sync --quiet --message "Add a note"
+
+$ git -C ../remote.git log --format=%s
+>Add a note
+
+# The search index is derived from the notes, so it is left out of the commits.
+$ zk index -q
+
+$ git ls-files .zk
+>.zk/config.toml
+
+# With nothing changed locally, no commit is made.
+$ zk sync --no-pull --no-push --message "Nothing to see here"
+2>Nothing to commit: the notes have not changed.
+
+$ git log --format=%s
+>Add a note
+
+# The notes written elsewhere are pulled in.
+$ git clone -q ../remote.git ../other
+
+$ echo -e "# Another note" > ../other/another.md
+
+$ git -C ../other add --all
+
+$ git -C ../other -c user.name=zk -c user.email=zk@e -c commit.gpgsign=false commit -q -m "Add another note"
+
+$ git -C ../other push -q origin main
+
+$ zk sync --quiet
+
+$ ls *.md
+>another.md
+>note.md
+
+$ git log --format=%s
+>Add another note
+>Add a note
+
